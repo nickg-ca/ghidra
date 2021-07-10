@@ -1,5 +1,19 @@
 <?xml version="1.1" encoding="UTF-8"?>
 <language_definitions>
+   <language processor="AppleM1"
+            endian="little"
+            size="64"
+            variant="v8A"
+            version="1.0"
+            slafile="AppleM1.sla"
+            processorspec="AARCH64.pspec"
+            manualindexfile="../manuals/AARCH64.idx"
+            id="AppleM1:LE:64:v8A">
+    <description>Apple M1 based on AARCH64</description>
+    <compiler name="default" spec="AARCH64.cspec" id="default"/>
+    <external_name tool="gnu" name="aarch64"/>
+    <external_name tool="DWARF.register.mapping.file" name="AARCH64.dwarf"/>
+   </language>
    <language processor="AARCH64"
             endian="little"
             size="64"
