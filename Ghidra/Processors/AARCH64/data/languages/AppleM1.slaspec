@@ -1,0 +1,667 @@
+@define DATA_ENDIAN "little"
+
+@include "AARCH64instructions.sinc"
+
+with : ImmS_ImmR_TestSet=1 {
+
+# Apple Silicon Custom: Guarded Execution
+# See https://blog.svenpeter.dev/posts/m1_sprr_gxf/
+
+define pcodeop CallGuarded;
+define pcodeop GuardedReturn;
+
+:genter
+is b_0031=0x00201420
+{
+	CallGuarded();
+}
+
+:gexit
+is b_0031=0x00201400
+{
+	GuardedReturn();
+}
+
+# Apple Silicon Custom AMX Instructions
+# Based on https://gist.github.com/dougallj/7a75a3be1ec69ca550e7c36dc75e0d6f
+
+define register offset=0x10000 size=512
+[
+	amx0
+	amx1
+];
+
+define register offset=0x10200 size=1024
+[
+	amx2
+];
+
+# b_1031=0x804 => AMX
+# b_0509 = operation
+# b_0004 = operand
+
+define pcodeop AMXLoadX;
+
+:amx_ldx Rt_GPR64
+is b_1031=0x804 & b_0509=0 & Rt_GPR64
+{
+	amx0 = *Rt_GPR64;
+	#AMXLoadX();
+}
+
+define pcodeop AMXLoadY;
+
+:amx_ldy
+is b_1031=0x804 & b_0509=1
+{
+	AMXLoadY();
+}
+
+define pcodeop AMXStoreX;
+
+:amx_stx
+is b_1031=0x804 & b_0509=2
+{
+	AMXStoreX();
+}
+
+define pcodeop AMXStoreY;
+
+:amx_sty
+is b_1031=0x804 & b_0509=3
+{
+	AMXStoreY();
+}
+
+define pcodeop AMXLoadZ;
+
+:amx_ldz
+is b_1031=0x804 & b_0509=4
+{
+	AMXLoadZ();
+}
+
+define pcodeop AMXStoreZ;
+
+:amx_stz
+is b_1031=0x804 & b_0509=5
+{
+	AMXStoreZ();
+}
+
+define pcodeop AMXLDZI;
+
+:amx_ldzi
+is b_1031=0x804 & b_0509=6
+{
+	AMXLDZI();
+}
+
+define pcodeop AMXSTZI;
+
+:amx_stzi
+is b_1031=0x804 & b_0509=7
+{
+	AMXSTZI();
+}
+
+define pcodeop AMXEXTRX;
+
+:amx_extrx
+is b_1031=0x804 & b_0509=8
+{
+	AMXEXTRX();
+}
+
+define pcodeop AMXEXTRY;
+
+:amx_extry
+is b_1031=0x804 & b_0509=9
+{
+	AMXEXTRY();
+}
+
+define pcodeop AMXFMA64;
+
+:amx_fma64
+is b_1031=0x804 & b_0509=10
+{
+	AMXFMA64();
+}
+
+define pcodeop AMXFMS64;
+
+:amx_fms64
+is b_1031=0x804 & b_0509=11
+{
+	AMXFMS64();
+}
+
+define pcodeop AMXFMA32;
+
+:amx_fma32
+is b_1031=0x804 & b_0509=12
+{
+	AMXFMA32();
+}
+
+define pcodeop AMXFMS32;
+
+:amx_fms32
+is b_1031=0x804 & b_0509=13
+{
+	AMXFMS32();
+}
+
+define pcodeop AMXMAC16;
+
+:amx_mac16
+is b_1031=0x804 & b_0509=14
+{
+	AMXMAC16();
+}
+
+define pcodeop AMXFMA16;
+
+:amx_fma16
+is b_1031=0x804 & b_0509=15
+{
+	AMXFMA16();
+}
+
+define pcodeop AMXFMS16;
+
+:amx_fms16
+is b_1031=0x0804 & b_0509=16
+{
+	AMXFMS16();
+}
+
+# amx_op17 enables/disables AMX
+# as noted by dougallj, these are always prefaced by three nops
+# in the accelerate framework, but it's unclear to me if that's
+# necessary for them to be valid
+
+define pcodeop AMXBegin;
+
+:amx_begin
+is b_1031=0x804 & b_0509=17 & b_0004=0
+{
+	AMXBegin();
+}
+
+define pcodeop AMXEnd;
+
+:amx_end
+is b_1031=0x804 & b_0509=17 & b_0004=1
+{
+	AMXEnd();
+}
+
+define pcodeop AMXVecInt;
+
+:amx_vecint
+is b_1031=0x804 & b_0509=18
+{
+	AMXVecInt();
+}
+
+define pcodeop AMXVecFP;
+
+:amx_vecfp
+is b_1031=0x804 & b_0509=19
+{
+	AMXVecFP();
+}
+
+define pcodeop AMXMATINT;
+
+:amx_matint
+is b_1031=0x804 & b_0509=20
+{
+	AMXMATINT();
+}
+
+define pcodeop AMXMATFP;
+
+:amx_matfp
+is b_1031=0x804 & b_0509=21
+{
+	AMXMATFP();
+}
+
+define pcodeop AMXGENLUT;
+
+:amx_genlut
+is b_1031=0x804 & b_0509=22
+{
+	AMXGENLUT();
+}
+
+# generated with:
+# grep enc apple_reg.json | sed -e "s/.*\"name\": \"\(.*\)\",.*fullname.*enc\": \[\([0-9][0-9]*\), \([0-9][0-9]*\), \([0-9][0-9]*\), \([0-9][0-9]*\), \([0-9][0-9]*\)[ \t]*\].*/\t\1/g"
+
+define register offset=0x10400 size=8
+[
+	HID0_EL1
+	EHID0_EL1
+	HID1_EL1
+	EHID1_EL1
+	HID2_EL1
+	EHID2_EL1
+	HID3_EL1
+	EHID3_EL1
+	HID4_EL1
+	EHID4_EL1
+	HID5_EL1
+	EHID5_EL1
+	HID6_EL1
+	HID7_EL1
+	EHID7_EL1
+	HID8_EL1
+	HID9_EL1
+	EHID9_EL1
+	HID10_EL1
+	EHID10_EL1
+	HID11_EL1
+	EHID11_EL1
+	HID13_EL1
+	HID14_EL1
+	HID16_EL1
+	HID17_EL1
+	HID18_EL1
+	EHID20_EL1
+	HID21_EL1
+	PMCR0_EL1
+	PMCR1_EL1
+	PMCR2_EL1
+	PMCR3_EL1
+	PMCR4_EL1
+	PMESR0_EL1
+	PMESR1_EL1
+	PMSR_EL1
+	PMC0_EL1
+	PMC1_EL1
+	PMC2_EL1
+	PMC3_EL1
+	PMC4_EL1
+	PMC5_EL1
+	PMC6_EL1
+	PMC7_EL1
+	PMC8_EL1
+	PMC9_EL1
+	LSU_ERR_STS_EL1
+	E_LSU_ERR_STS_EL1
+	LSU_ERR_CTL_EL1
+	L2C_ERR_STS_EL1
+	L2C_ERR_ADR_EL1
+	L2C_ERR_INF_EL1
+	FED_ERR_STS_EL1
+	E_FED_ERR_STS_EL1
+	APCTL_EL1
+	KERNELKEYLO_EL1
+	KERNELKEYHI_EL1
+	VMSA_LOCK_EL1
+	AMX_CTL_EL1
+	APRR_EL0
+	APRR_EL1
+	CTRR_LOCK_EL1
+	CTRR_A_LWR_EL1
+	CTRR_A_UPR_EL1
+	CTRR_CTL_EL1
+	APRR_JIT_ENABLE_EL2
+	APRR_JIT_MASK_EL2
+	AMX_CTL_EL12
+	AMX_CTL_EL2
+	SPRR_PERM_EL20_SILLY_THING
+	SPRR_PERM_EL02
+	SPRR_UMASK0_EL2
+	SPRR_UMASK1_EL2
+	SPRR_UMASK2_EL2
+	SPRR_UMASK3_EL2
+	SPRR_UMASK0_EL12
+	SPRR_UMASK1_EL12
+	SPRR_UMASK2_EL12
+	SPRR_UMASK3_EL12
+	CNTPCT_ALIAS_EL0
+	CNTVCT_ALIAS_EL0
+	CTRR_A_LWR_EL2
+	CTRR_A_UPR_EL2
+	CTRR_CTL_EL2
+	CTRR_LOCK_EL2
+	IPI_RR_LOCAL_EL1
+	IPI_RR_GLOBAL_EL1
+	DPC_ERR_STS_EL1
+	IPI_SR_EL1
+	VM_TMR_LR_EL2
+	VM_TMR_FIQ_ENA_EL2
+	IPI_CR_EL1
+	ACC_CFG_EL1
+	CYC_OVRD_EL1
+	ACC_OVRD_EL1
+	ACC_EBLK_OVRD_EL1
+	MMU_ERR_STS_EL1
+	AFSR1_GL1
+	AFSR1_GL2
+	AFSR1_GL12
+	SPRR_CONFIG_EL1
+	GXF_CONFIG_EL1
+	SPRR_UNK1_EL1
+	GXF_CONFIG_EL2
+	SPRR_PERM_EL0
+	SPRR_PERM_EL1
+	SPRR_PERM_EL2
+	E_MMU_ERR_STS_EL1
+	APGAKeyLo_EL12
+	APGAKeyHi_EL12
+	KERNELKEYLO_EL12
+	KERNELKEYHI_EL12
+	AFPCR_EL0
+	AIDR2_EL1
+	SPRR_UMASK0_EL1
+	SPRR_KMASK0_EL1
+	SPRR_KMASK0_EL2
+	SPRR_UMASK1_EL1
+	SPRR_UMASK2_EL1
+	SPRR_UMASK3_EL1
+	SPRR_KMASK1_EL1
+	SPRR_KMASK2_EL1
+	SPRR_KMASK3_EL1
+	SPRR_KMASK1_EL2
+	SPRR_KMASK2_EL2
+	SPRR_KMASK3_EL2
+	SPRR_KMASK0_EL12
+	SPRR_KMASK1_EL12
+	SPRR_KMASK2_EL12
+	SPRR_KMASK3_EL12
+	APIAKeyLo_EL12
+	APIAKeyHi_EL12
+	APIBKeyLo_EL12
+	APIBKeyHi_EL12
+	APDAKeyLo_EL12
+	APDAKeyHi_EL12
+	APDBKeyLo_EL12
+	APDBKeyHi_EL12
+	GXF_STATUS_EL1
+	GXF_ENTER_EL1
+	GXF_ABORT_EL1
+	VBAR_GL12
+	SPSR_GL12
+	ASPSR_GL12
+	ESR_GL12
+	ELR_GL12
+	SP_GL12
+	TPIDR_GL1
+	VBAR_GL1
+	SPSR_GL1
+	ASPSR_GL1
+	ESR_GL1
+	ELR_GL1
+	FAR_GL1
+	TPIDR_GL2
+	VBAR_GL2
+	SPSR_GL2
+	ASPSR_GL2
+	ESR_GL2
+	ELR_GL2
+	FAR_GL2
+	GXF_ENTER_EL2
+	GXF_ABORT_EL2
+	APCTL_EL2
+	APSTS_EL2_MAYBE
+	APSTS_EL1
+	SPRR_CONFIG_EL2
+	SPRR_UNK1_EL2
+	APVMKEYLO_EL2
+	APVMKEYHI_EL2
+	ACTLR_EL12
+	APSTS_EL12
+	APCTL_EL12
+	GXF_CONFIG_EL12
+	GXF_ENTER_EL12
+	GXF_ABORT_EL12
+	SPRR_CONFIG_EL12
+	SPRR_UNK1_EL12
+	SPRR_PERM_EL12
+	UPMCR0_EL1
+	UPMESR0_EL1
+	UPMECM0_EL1
+	UPMECM1_EL1
+	UPMPCM_EL1
+	UPMSR_EL1
+	UPMECM2_EL1
+	UPMECM3_EL1
+	UPMESR1_EL1
+	UPMC0_EL1
+	UPMC1_EL1
+	UPMC2_EL1
+	UPMC3_EL1
+	UPMC4_EL1
+	UPMC5_EL1
+	UPMC6_EL1
+	UPMC7_EL1
+	UPMC8_EL1
+	UPMC9_EL1
+	UPMC10_EL1
+	UPMC11_EL1
+	UPMC12_EL1
+	UPMC13_EL1
+	UPMC14_EL1
+	UPMC15_EL1
+];
+
+# generated with:
+# grep enc apple_reg.json | sed -e "s/.*\"name\": \"\(.*\)\",.*fullname.*enc\": \[\([0-9][0-9]*\), \([0-9][0-9]*\), \([0-9][0-9]*\), \([0-9][0-9]*\), \([0-9][0-9]*\)[ \t]*\].*/CopReg: \1 is Op0=\2 \& Op1_uimm3=\3 \& CRn=\4 \& CRm=\5 \& Op2_uimm3=\6 \& \1 \{ export \1; \}/g"
+
+with : (l=0 | l=1) {
+CopReg: HID0_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=0 & Op2_uimm3=0 & HID0_EL1 { export HID0_EL1; }
+CopReg: EHID0_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=0 & Op2_uimm3=1 & EHID0_EL1 { export EHID0_EL1; }
+CopReg: HID1_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=1 & Op2_uimm3=0 & HID1_EL1 { export HID1_EL1; }
+CopReg: EHID1_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=1 & Op2_uimm3=1 & EHID1_EL1 { export EHID1_EL1; }
+CopReg: HID2_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=2 & Op2_uimm3=0 & HID2_EL1 { export HID2_EL1; }
+CopReg: EHID2_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=2 & Op2_uimm3=1 & EHID2_EL1 { export EHID2_EL1; }
+CopReg: HID3_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=3 & Op2_uimm3=0 & HID3_EL1 { export HID3_EL1; }
+CopReg: EHID3_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=3 & Op2_uimm3=1 & EHID3_EL1 { export EHID3_EL1; }
+CopReg: HID4_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=4 & Op2_uimm3=0 & HID4_EL1 { export HID4_EL1; }
+CopReg: EHID4_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=4 & Op2_uimm3=1 & EHID4_EL1 { export EHID4_EL1; }
+CopReg: HID5_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=5 & Op2_uimm3=0 & HID5_EL1 { export HID5_EL1; }
+CopReg: EHID5_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=5 & Op2_uimm3=1 & EHID5_EL1 { export EHID5_EL1; }
+CopReg: HID6_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=6 & Op2_uimm3=0 & HID6_EL1 { export HID6_EL1; }
+CopReg: HID7_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=7 & Op2_uimm3=0 & HID7_EL1 { export HID7_EL1; }
+CopReg: EHID7_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=7 & Op2_uimm3=1 & EHID7_EL1 { export EHID7_EL1; }
+CopReg: HID8_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=8 & Op2_uimm3=0 & HID8_EL1 { export HID8_EL1; }
+CopReg: HID9_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=9 & Op2_uimm3=0 & HID9_EL1 { export HID9_EL1; }
+CopReg: EHID9_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=9 & Op2_uimm3=1 & EHID9_EL1 { export EHID9_EL1; }
+CopReg: HID10_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=10 & Op2_uimm3=0 & HID10_EL1 { export HID10_EL1; }
+CopReg: EHID10_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=10 & Op2_uimm3=1 & EHID10_EL1 { export EHID10_EL1; }
+CopReg: HID11_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=11 & Op2_uimm3=0 & HID11_EL1 { export HID11_EL1; }
+CopReg: EHID11_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=11 & Op2_uimm3=1 & EHID11_EL1 { export EHID11_EL1; }
+CopReg: HID13_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=14 & Op2_uimm3=0 & HID13_EL1 { export HID13_EL1; }
+CopReg: HID14_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=15 & Op2_uimm3=0 & HID14_EL1 { export HID14_EL1; }
+CopReg: HID16_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=15 & Op2_uimm3=2 & HID16_EL1 { export HID16_EL1; }
+CopReg: HID17_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=15 & Op2_uimm3=5 & HID17_EL1 { export HID17_EL1; }
+CopReg: HID18_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=11 & Op2_uimm3=2 & HID18_EL1 { export HID18_EL1; }
+CopReg: EHID20_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=1 & Op2_uimm3=2 & EHID20_EL1 { export EHID20_EL1; }
+CopReg: HID21_EL1 is Op0=3 & Op1_uimm3=0 & CRn=15 & CRm=1 & Op2_uimm3=3 & HID21_EL1 { export HID21_EL1; }
+CopReg: PMCR0_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=0 & Op2_uimm3=0 & PMCR0_EL1 { export PMCR0_EL1; }
+CopReg: PMCR1_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=1 & Op2_uimm3=0 & PMCR1_EL1 { export PMCR1_EL1; }
+CopReg: PMCR2_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=2 & Op2_uimm3=0 & PMCR2_EL1 { export PMCR2_EL1; }
+CopReg: PMCR3_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=3 & Op2_uimm3=0 & PMCR3_EL1 { export PMCR3_EL1; }
+CopReg: PMCR4_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=4 & Op2_uimm3=0 & PMCR4_EL1 { export PMCR4_EL1; }
+CopReg: PMESR0_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=5 & Op2_uimm3=0 & PMESR0_EL1 { export PMESR0_EL1; }
+CopReg: PMESR1_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=6 & Op2_uimm3=0 & PMESR1_EL1 { export PMESR1_EL1; }
+CopReg: PMSR_EL1 is Op0=3 & Op1_uimm3=1 & CRn=15 & CRm=13 & Op2_uimm3=0 & PMSR_EL1 { export PMSR_EL1; }
+CopReg: PMC0_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=0 & Op2_uimm3=0 & PMC0_EL1 { export PMC0_EL1; }
+CopReg: PMC1_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=1 & Op2_uimm3=0 & PMC1_EL1 { export PMC1_EL1; }
+CopReg: PMC2_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=2 & Op2_uimm3=0 & PMC2_EL1 { export PMC2_EL1; }
+CopReg: PMC3_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=3 & Op2_uimm3=0 & PMC3_EL1 { export PMC3_EL1; }
+CopReg: PMC4_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=4 & Op2_uimm3=0 & PMC4_EL1 { export PMC4_EL1; }
+CopReg: PMC5_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=5 & Op2_uimm3=0 & PMC5_EL1 { export PMC5_EL1; }
+CopReg: PMC6_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=6 & Op2_uimm3=0 & PMC6_EL1 { export PMC6_EL1; }
+CopReg: PMC7_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=7 & Op2_uimm3=0 & PMC7_EL1 { export PMC7_EL1; }
+CopReg: PMC8_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=9 & Op2_uimm3=0 & PMC8_EL1 { export PMC8_EL1; }
+CopReg: PMC9_EL1 is Op0=3 & Op1_uimm3=2 & CRn=15 & CRm=10 & Op2_uimm3=0 & PMC9_EL1 { export PMC9_EL1; }
+CopReg: LSU_ERR_STS_EL1 is Op0=3 & Op1_uimm3=3 & CRn=15 & CRm=0 & Op2_uimm3=0 & LSU_ERR_STS_EL1 { export LSU_ERR_STS_EL1; }
+CopReg: E_LSU_ERR_STS_EL1 is Op0=3 & Op1_uimm3=3 & CRn=15 & CRm=2 & Op2_uimm3=0 & E_LSU_ERR_STS_EL1 { export E_LSU_ERR_STS_EL1; }
+CopReg: LSU_ERR_CTL_EL1 is Op0=3 & Op1_uimm3=3 & CRn=15 & CRm=1 & Op2_uimm3=0 & LSU_ERR_CTL_EL1 { export LSU_ERR_CTL_EL1; }
+CopReg: L2C_ERR_STS_EL1 is Op0=3 & Op1_uimm3=3 & CRn=15 & CRm=8 & Op2_uimm3=0 & L2C_ERR_STS_EL1 { export L2C_ERR_STS_EL1; }
+CopReg: L2C_ERR_ADR_EL1 is Op0=3 & Op1_uimm3=3 & CRn=15 & CRm=9 & Op2_uimm3=0 & L2C_ERR_ADR_EL1 { export L2C_ERR_ADR_EL1; }
+CopReg: L2C_ERR_INF_EL1 is Op0=3 & Op1_uimm3=3 & CRn=15 & CRm=10 & Op2_uimm3=0 & L2C_ERR_INF_EL1 { export L2C_ERR_INF_EL1; }
+CopReg: FED_ERR_STS_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=0 & Op2_uimm3=0 & FED_ERR_STS_EL1 { export FED_ERR_STS_EL1; }
+CopReg: E_FED_ERR_STS_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=0 & Op2_uimm3=2 & E_FED_ERR_STS_EL1 { export E_FED_ERR_STS_EL1; }
+CopReg: APCTL_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=0 & Op2_uimm3=4 & APCTL_EL1 { export APCTL_EL1; }
+CopReg: KERNELKEYLO_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=1 & Op2_uimm3=0 & KERNELKEYLO_EL1 { export KERNELKEYLO_EL1; }
+CopReg: KERNELKEYHI_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=1 & Op2_uimm3=1 & KERNELKEYHI_EL1 { export KERNELKEYHI_EL1; }
+CopReg: VMSA_LOCK_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=1 & Op2_uimm3=2 & VMSA_LOCK_EL1 { export VMSA_LOCK_EL1; }
+CopReg: AMX_CTL_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=1 & Op2_uimm3=4 & AMX_CTL_EL1 { export AMX_CTL_EL1; }
+CopReg: APRR_EL0 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=0 & APRR_EL0 { export APRR_EL0; }
+CopReg: APRR_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=1 & APRR_EL1 { export APRR_EL1; }
+CopReg: CTRR_LOCK_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=2 & CTRR_LOCK_EL1 { export CTRR_LOCK_EL1; }
+CopReg: CTRR_A_LWR_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=3 & CTRR_A_LWR_EL1 { export CTRR_A_LWR_EL1; }
+CopReg: CTRR_A_UPR_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=4 & CTRR_A_UPR_EL1 { export CTRR_A_UPR_EL1; }
+CopReg: CTRR_CTL_EL1 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=5 & CTRR_CTL_EL1 { export CTRR_CTL_EL1; }
+CopReg: APRR_JIT_ENABLE_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=6 & APRR_JIT_ENABLE_EL2 { export APRR_JIT_ENABLE_EL2; }
+CopReg: APRR_JIT_MASK_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=2 & Op2_uimm3=7 & APRR_JIT_MASK_EL2 { export APRR_JIT_MASK_EL2; }
+CopReg: AMX_CTL_EL12 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=4 & Op2_uimm3=6 & AMX_CTL_EL12 { export AMX_CTL_EL12; }
+CopReg: AMX_CTL_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=4 & Op2_uimm3=7 & AMX_CTL_EL2 { export AMX_CTL_EL2; }
+CopReg: SPRR_PERM_EL20_SILLY_THING is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=5 & Op2_uimm3=1 & SPRR_PERM_EL20_SILLY_THING { export SPRR_PERM_EL20_SILLY_THING; }
+CopReg: SPRR_PERM_EL02 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=5 & Op2_uimm3=2 & SPRR_PERM_EL02 { export SPRR_PERM_EL02; }
+CopReg: SPRR_KMASK0_EL12 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=6 & Op2_uimm3=0 & SPRR_KMASK0_EL12 { export SPRR_KMASK0_EL12; }
+CopReg: SPRR_UMASK0_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=7 & Op2_uimm3=0 & SPRR_UMASK0_EL2 { export SPRR_UMASK0_EL2; }
+CopReg: SPRR_UMASK1_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=7 & Op2_uimm3=1 & SPRR_UMASK1_EL2 { export SPRR_UMASK1_EL2; }
+CopReg: SPRR_UMASK2_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=7 & Op2_uimm3=2 & SPRR_UMASK2_EL2 { export SPRR_UMASK2_EL2; }
+CopReg: SPRR_UMASK3_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=7 & Op2_uimm3=3 & SPRR_UMASK3_EL2 { export SPRR_UMASK3_EL2; }
+CopReg: SPRR_UMASK0_EL12 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=8 & Op2_uimm3=0 & SPRR_UMASK0_EL12 { export SPRR_UMASK0_EL12; }
+CopReg: SPRR_UMASK1_EL12 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=8 & Op2_uimm3=1 & SPRR_UMASK1_EL12 { export SPRR_UMASK1_EL12; }
+CopReg: SPRR_UMASK2_EL12 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=8 & Op2_uimm3=2 & SPRR_UMASK2_EL12 { export SPRR_UMASK2_EL12; }
+CopReg: SPRR_UMASK3_EL12 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=8 & Op2_uimm3=3 & SPRR_UMASK3_EL12 { export SPRR_UMASK3_EL12; }
+CopReg: CNTPCT_ALIAS_EL0 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=10 & Op2_uimm3=5 & CNTPCT_ALIAS_EL0 { export CNTPCT_ALIAS_EL0; }
+CopReg: CNTVCT_ALIAS_EL0 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=10 & Op2_uimm3=6 & CNTVCT_ALIAS_EL0 { export CNTVCT_ALIAS_EL0; }
+CopReg: CTRR_A_LWR_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=11 & Op2_uimm3=0 & CTRR_A_LWR_EL2 { export CTRR_A_LWR_EL2; }
+CopReg: CTRR_A_UPR_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=11 & Op2_uimm3=1 & CTRR_A_UPR_EL2 { export CTRR_A_UPR_EL2; }
+CopReg: CTRR_CTL_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=11 & Op2_uimm3=4 & CTRR_CTL_EL2 { export CTRR_CTL_EL2; }
+CopReg: CTRR_LOCK_EL2 is Op0=3 & Op1_uimm3=4 & CRn=15 & CRm=11 & Op2_uimm3=5 & CTRR_LOCK_EL2 { export CTRR_LOCK_EL2; }
+CopReg: IPI_RR_LOCAL_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=0 & Op2_uimm3=0 & IPI_RR_LOCAL_EL1 { export IPI_RR_LOCAL_EL1; }
+CopReg: IPI_RR_GLOBAL_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=0 & Op2_uimm3=1 & IPI_RR_GLOBAL_EL1 { export IPI_RR_GLOBAL_EL1; }
+CopReg: DPC_ERR_STS_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=0 & Op2_uimm3=5 & DPC_ERR_STS_EL1 { export DPC_ERR_STS_EL1; }
+CopReg: IPI_SR_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=1 & Op2_uimm3=1 & IPI_SR_EL1 { export IPI_SR_EL1; }
+CopReg: VM_TMR_LR_EL2 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=1 & Op2_uimm3=2 & VM_TMR_LR_EL2 { export VM_TMR_LR_EL2; }
+CopReg: VM_TMR_FIQ_ENA_EL2 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=1 & Op2_uimm3=3 & VM_TMR_FIQ_ENA_EL2 { export VM_TMR_FIQ_ENA_EL2; }
+CopReg: IPI_CR_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=3 & Op2_uimm3=1 & IPI_CR_EL1 { export IPI_CR_EL1; }
+CopReg: ACC_CFG_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=4 & Op2_uimm3=0 & ACC_CFG_EL1 { export ACC_CFG_EL1; }
+CopReg: CYC_OVRD_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=5 & Op2_uimm3=0 & CYC_OVRD_EL1 { export CYC_OVRD_EL1; }
+CopReg: ACC_OVRD_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=6 & Op2_uimm3=0 & ACC_OVRD_EL1 { export ACC_OVRD_EL1; }
+CopReg: ACC_EBLK_OVRD_EL1 is Op0=3 & Op1_uimm3=5 & CRn=15 & CRm=6 & Op2_uimm3=1 & ACC_EBLK_OVRD_EL1 { export ACC_EBLK_OVRD_EL1; }
+CopReg: MMU_ERR_STS_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=0 & Op2_uimm3=0 & MMU_ERR_STS_EL1 { export MMU_ERR_STS_EL1; }
+CopReg: AFSR1_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=0 & Op2_uimm3=1 & AFSR1_GL1 { export AFSR1_GL1; }
+CopReg: AFSR1_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=0 & Op2_uimm3=2 & AFSR1_GL2 { export AFSR1_GL2; }
+CopReg: AFSR1_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=0 & Op2_uimm3=3 & AFSR1_GL12 { export AFSR1_GL12; }
+CopReg: SPRR_CONFIG_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=0 & SPRR_CONFIG_EL1 { export SPRR_CONFIG_EL1; }
+CopReg: GXF_CONFIG_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=2 & GXF_CONFIG_EL1 { export GXF_CONFIG_EL1; }
+CopReg: SPRR_UNK1_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=3 & SPRR_UNK1_EL1 { export SPRR_UNK1_EL1; }
+CopReg: GXF_CONFIG_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=4 & GXF_CONFIG_EL2 { export GXF_CONFIG_EL2; }
+CopReg: SPRR_PERM_EL0 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=5 & SPRR_PERM_EL0 { export SPRR_PERM_EL0; }
+CopReg: SPRR_PERM_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=6 & SPRR_PERM_EL1 { export SPRR_PERM_EL1; }
+CopReg: SPRR_PERM_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=1 & Op2_uimm3=7 & SPRR_PERM_EL2 { export SPRR_PERM_EL2; }
+CopReg: E_MMU_ERR_STS_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=0 & E_MMU_ERR_STS_EL1 { export E_MMU_ERR_STS_EL1; }
+CopReg: APGAKeyLo_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=1 & APGAKeyLo_EL12 { export APGAKeyLo_EL12; }
+CopReg: APGAKeyHi_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=2 & APGAKeyHi_EL12 { export APGAKeyHi_EL12; }
+CopReg: KERNELKEYLO_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=3 & KERNELKEYLO_EL12 { export KERNELKEYLO_EL12; }
+CopReg: KERNELKEYHI_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=4 & KERNELKEYHI_EL12 { export KERNELKEYHI_EL12; }
+CopReg: AFPCR_EL0 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=5 & AFPCR_EL0 { export AFPCR_EL0; }
+CopReg: AIDR2_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=2 & Op2_uimm3=7 & AIDR2_EL1 { export AIDR2_EL1; }
+CopReg: SPRR_UMASK0_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=3 & Op2_uimm3=0 & SPRR_UMASK0_EL1 { export SPRR_UMASK0_EL1; }
+CopReg: SPRR_KMASK0_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=3 & Op2_uimm3=1 & SPRR_KMASK0_EL1 { export SPRR_KMASK0_EL1; }
+CopReg: SPRR_KMASK0_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=3 & Op2_uimm3=2 & SPRR_KMASK0_EL2 { export SPRR_KMASK0_EL2; }
+CopReg: SPRR_UMASK1_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=3 & Op2_uimm3=3 & SPRR_UMASK1_EL1 { export SPRR_UMASK1_EL1; }
+CopReg: SPRR_UMASK2_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=3 & Op2_uimm3=4 & SPRR_UMASK2_EL1 { export SPRR_UMASK2_EL1; }
+CopReg: SPRR_UMASK3_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=3 & Op2_uimm3=5 & SPRR_UMASK3_EL1 { export SPRR_UMASK3_EL1; }
+CopReg: SPRR_KMASK1_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=4 & Op2_uimm3=2 & SPRR_KMASK1_EL1 { export SPRR_KMASK1_EL1; }
+CopReg: SPRR_KMASK2_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=4 & Op2_uimm3=3 & SPRR_KMASK2_EL1 { export SPRR_KMASK2_EL1; }
+CopReg: SPRR_KMASK3_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=4 & Op2_uimm3=4 & SPRR_KMASK3_EL1 { export SPRR_KMASK3_EL1; }
+CopReg: SPRR_KMASK1_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=5 & Op2_uimm3=1 & SPRR_KMASK1_EL2 { export SPRR_KMASK1_EL2; }
+CopReg: SPRR_KMASK2_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=5 & Op2_uimm3=2 & SPRR_KMASK2_EL2 { export SPRR_KMASK2_EL2; }
+CopReg: SPRR_KMASK3_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=5 & Op2_uimm3=3 & SPRR_KMASK3_EL2 { export SPRR_KMASK3_EL2; }
+CopReg: SPRR_KMASK0_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=6 & Op2_uimm3=0 & SPRR_KMASK0_EL12 { export SPRR_KMASK0_EL12; }
+CopReg: SPRR_KMASK1_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=6 & Op2_uimm3=1 & SPRR_KMASK1_EL12 { export SPRR_KMASK1_EL12; }
+CopReg: SPRR_KMASK2_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=6 & Op2_uimm3=2 & SPRR_KMASK2_EL12 { export SPRR_KMASK2_EL12; }
+CopReg: SPRR_KMASK3_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=6 & Op2_uimm3=3 & SPRR_KMASK3_EL12 { export SPRR_KMASK3_EL12; }
+CopReg: APIAKeyLo_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=0 & APIAKeyLo_EL12 { export APIAKeyLo_EL12; }
+CopReg: APIAKeyHi_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=1 & APIAKeyHi_EL12 { export APIAKeyHi_EL12; }
+CopReg: APIBKeyLo_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=2 & APIBKeyLo_EL12 { export APIBKeyLo_EL12; }
+CopReg: APIBKeyHi_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=3 & APIBKeyHi_EL12 { export APIBKeyHi_EL12; }
+CopReg: APDAKeyLo_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=4 & APDAKeyLo_EL12 { export APDAKeyLo_EL12; }
+CopReg: APDAKeyHi_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=5 & APDAKeyHi_EL12 { export APDAKeyHi_EL12; }
+CopReg: APDBKeyLo_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=6 & APDBKeyLo_EL12 { export APDBKeyLo_EL12; }
+CopReg: APDBKeyHi_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=7 & Op2_uimm3=7 & APDBKeyHi_EL12 { export APDBKeyHi_EL12; }
+CopReg: GXF_STATUS_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=8 & Op2_uimm3=0 & GXF_STATUS_EL1 { export GXF_STATUS_EL1; }
+CopReg: GXF_ENTER_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=8 & Op2_uimm3=1 & GXF_ENTER_EL1 { export GXF_ENTER_EL1; }
+CopReg: GXF_ABORT_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=8 & Op2_uimm3=2 & GXF_ABORT_EL1 { export GXF_ABORT_EL1; }
+CopReg: VBAR_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=9 & Op2_uimm3=2 & VBAR_GL12 { export VBAR_GL12; }
+CopReg: SPSR_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=9 & Op2_uimm3=3 & SPSR_GL12 { export SPSR_GL12; }
+CopReg: ASPSR_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=9 & Op2_uimm3=4 & ASPSR_GL12 { export ASPSR_GL12; }
+CopReg: ESR_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=9 & Op2_uimm3=5 & ESR_GL12 { export ESR_GL12; }
+CopReg: ELR_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=9 & Op2_uimm3=6 & ELR_GL12 { export ELR_GL12; }
+CopReg: SP_GL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=0 & SP_GL12 { export SP_GL12; }
+CopReg: TPIDR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=1 & TPIDR_GL1 { export TPIDR_GL1; }
+CopReg: VBAR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=2 & VBAR_GL1 { export VBAR_GL1; }
+CopReg: SPSR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=3 & SPSR_GL1 { export SPSR_GL1; }
+CopReg: ASPSR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=4 & ASPSR_GL1 { export ASPSR_GL1; }
+CopReg: ESR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=5 & ESR_GL1 { export ESR_GL1; }
+CopReg: ELR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=6 & ELR_GL1 { export ELR_GL1; }
+CopReg: FAR_GL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=10 & Op2_uimm3=7 & FAR_GL1 { export FAR_GL1; }
+CopReg: TPIDR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=1 & TPIDR_GL2 { export TPIDR_GL2; }
+CopReg: VBAR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=2 & VBAR_GL2 { export VBAR_GL2; }
+CopReg: SPSR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=3 & SPSR_GL2 { export SPSR_GL2; }
+CopReg: ASPSR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=4 & ASPSR_GL2 { export ASPSR_GL2; }
+CopReg: ESR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=5 & ESR_GL2 { export ESR_GL2; }
+CopReg: ELR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=6 & ELR_GL2 { export ELR_GL2; }
+CopReg: FAR_GL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=11 & Op2_uimm3=7 & FAR_GL2 { export FAR_GL2; }
+CopReg: GXF_ENTER_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=12 & Op2_uimm3=0 & GXF_ENTER_EL2 { export GXF_ENTER_EL2; }
+CopReg: GXF_ABORT_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=12 & Op2_uimm3=1 & GXF_ABORT_EL2 { export GXF_ABORT_EL2; }
+CopReg: APCTL_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=12 & Op2_uimm3=2 & APCTL_EL2 { export APCTL_EL2; }
+CopReg: APSTS_EL2_MAYBE is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=12 & Op2_uimm3=3 & APSTS_EL2_MAYBE { export APSTS_EL2_MAYBE; }
+CopReg: APSTS_EL1 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=12 & Op2_uimm3=4 & APSTS_EL1 { export APSTS_EL1; }
+CopReg: SPRR_CONFIG_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=14 & Op2_uimm3=2 & SPRR_CONFIG_EL2 { export SPRR_CONFIG_EL2; }
+CopReg: SPRR_UNK1_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=14 & Op2_uimm3=3 & SPRR_UNK1_EL2 { export SPRR_UNK1_EL2; }
+CopReg: APVMKEYLO_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=14 & Op2_uimm3=4 & APVMKEYLO_EL2 { export APVMKEYLO_EL2; }
+CopReg: APVMKEYHI_EL2 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=14 & Op2_uimm3=5 & APVMKEYHI_EL2 { export APVMKEYHI_EL2; }
+CopReg: ACTLR_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=14 & Op2_uimm3=6 & ACTLR_EL12 { export ACTLR_EL12; }
+CopReg: APSTS_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=14 & Op2_uimm3=7 & APSTS_EL12 { export APSTS_EL12; }
+CopReg: APCTL_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=0 & APCTL_EL12 { export APCTL_EL12; }
+CopReg: GXF_CONFIG_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=1 & GXF_CONFIG_EL12 { export GXF_CONFIG_EL12; }
+CopReg: GXF_ENTER_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=2 & GXF_ENTER_EL12 { export GXF_ENTER_EL12; }
+CopReg: GXF_ABORT_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=3 & GXF_ABORT_EL12 { export GXF_ABORT_EL12; }
+CopReg: SPRR_CONFIG_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=4 & SPRR_CONFIG_EL12 { export SPRR_CONFIG_EL12; }
+CopReg: SPRR_UNK1_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=5 & SPRR_UNK1_EL12 { export SPRR_UNK1_EL12; }
+CopReg: SPRR_PERM_EL12 is Op0=3 & Op1_uimm3=6 & CRn=15 & CRm=15 & Op2_uimm3=7 & SPRR_PERM_EL12 { export SPRR_PERM_EL12; }
+CopReg: UPMCR0_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=0 & Op2_uimm3=4 & UPMCR0_EL1 { export UPMCR0_EL1; }
+CopReg: UPMESR0_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=1 & Op2_uimm3=4 & UPMESR0_EL1 { export UPMESR0_EL1; }
+CopReg: UPMECM0_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=3 & Op2_uimm3=4 & UPMECM0_EL1 { export UPMECM0_EL1; }
+CopReg: UPMECM1_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=4 & Op2_uimm3=4 & UPMECM1_EL1 { export UPMECM1_EL1; }
+CopReg: UPMPCM_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=5 & Op2_uimm3=4 & UPMPCM_EL1 { export UPMPCM_EL1; }
+CopReg: UPMSR_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=6 & Op2_uimm3=4 & UPMSR_EL1 { export UPMSR_EL1; }
+CopReg: UPMECM2_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=8 & Op2_uimm3=5 & UPMECM2_EL1 { export UPMECM2_EL1; }
+CopReg: UPMECM3_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=9 & Op2_uimm3=5 & UPMECM3_EL1 { export UPMECM3_EL1; }
+CopReg: UPMESR1_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=11 & Op2_uimm3=5 & UPMESR1_EL1 { export UPMESR1_EL1; }
+CopReg: UPMC0_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=7 & Op2_uimm3=4 & UPMC0_EL1 { export UPMC0_EL1; }
+CopReg: UPMC1_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=8 & Op2_uimm3=4 & UPMC1_EL1 { export UPMC1_EL1; }
+CopReg: UPMC2_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=9 & Op2_uimm3=4 & UPMC2_EL1 { export UPMC2_EL1; }
+CopReg: UPMC3_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=10 & Op2_uimm3=4 & UPMC3_EL1 { export UPMC3_EL1; }
+CopReg: UPMC4_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=11 & Op2_uimm3=4 & UPMC4_EL1 { export UPMC4_EL1; }
+CopReg: UPMC5_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=12 & Op2_uimm3=4 & UPMC5_EL1 { export UPMC5_EL1; }
+CopReg: UPMC6_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=13 & Op2_uimm3=4 & UPMC6_EL1 { export UPMC6_EL1; }
+CopReg: UPMC7_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=14 & Op2_uimm3=4 & UPMC7_EL1 { export UPMC7_EL1; }
+CopReg: UPMC8_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=0 & Op2_uimm3=5 & UPMC8_EL1 { export UPMC8_EL1; }
+CopReg: UPMC9_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=1 & Op2_uimm3=5 & UPMC9_EL1 { export UPMC9_EL1; }
+CopReg: UPMC10_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=2 & Op2_uimm3=5 & UPMC10_EL1 { export UPMC10_EL1; }
+CopReg: UPMC11_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=3 & Op2_uimm3=5 & UPMC11_EL1 { export UPMC11_EL1; }
+CopReg: UPMC12_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=4 & Op2_uimm3=5 & UPMC12_EL1 { export UPMC12_EL1; }
+CopReg: UPMC13_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=5 & Op2_uimm3=5 & UPMC13_EL1 { export UPMC13_EL1; }
+CopReg: UPMC14_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=6 & Op2_uimm3=5 & UPMC14_EL1 { export UPMC14_EL1; }
+CopReg: UPMC15_EL1 is Op0=3 & Op1_uimm3=7 & CRn=15 & CRm=7 & Op2_uimm3=5 & UPMC15_EL1 { export UPMC15_EL1; }
+#CopReg: HACR_EL2 is Op0=3 & Op1_uimm3=4 & CRn=1 & CRm=1 & Op2_uimm3=7 & HACR_EL2 { export HACR_EL2; }
+}
+
+
+} # end with ImmS_ImmR_TestSet=1
