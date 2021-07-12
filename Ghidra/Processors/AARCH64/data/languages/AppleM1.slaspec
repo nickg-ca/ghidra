@@ -4,22 +4,61 @@
 
 with : ImmS_ImmR_TestSet=1 {
 
+# Apple Silicon Custom: WKdm memory compression, found through wkdmd instruction in XNU source
+# extrapolating it seems 0x00200a60 is probaly wkdmc compress instruction
+# and i'm guessing it takes a register operand based on the lower 5 bits and surrounding code
+# this is really just a guess based on the nearby undefined instructions and not based on any
+# dynamic analysis
+
+define pcodeop WKdmCompress;
+
+:wkdmc Rt_GPR64
+is b_1031=0x802 & b_0509=0x13 & Rt_GPR64
+{
+	WKdmCompress(Rt_GPR64);
+}
+
+define pcodeop WKdmDecompress;
+
+:wkdmd Rt_GPR64
+is b_1031=0x803 & b_0509=0x14 & Rt_GPR64
+{
+	WKdmDecompress(Rt_GPR64);
+}
+
 # Apple Silicon Custom: Guarded Execution
 # See https://blog.svenpeter.dev/posts/m1_sprr_gxf/
 
 define pcodeop CallGuarded;
 define pcodeop GuardedReturn;
 
-:genter
-is b_0031=0x00201420
+#0x00201420
+
+:genter Rt_GPR64
+is b_1031=0x805 & b_0509=0x1 & Rt_GPR64
 {
-	CallGuarded();
+	CallGuarded(Rt_GPR64);
 }
 
+#0x00201400
+#not sure this one actually takes a register operand? i'd guess not
+
 :gexit
-is b_0031=0x00201400
+is b_1031=0x805 & b_0509=0x0 & b_0004=0x0
 {
-	GuardedReturn();
+	pc = GuardedReturn();
+	return [pc];
+}
+
+# the presence of 0x00201462 suggests another instruction of some sort related to GXF
+# i have no idea what it does
+
+define pcodeop UnknownGuarded;
+
+:gunknown Rt_GPR64
+is b_1031=0x805 & b_0509=0x3 & Rt_GPR64
+{
+	UnknownGuarded(Rt_GPR64);
 }
 
 # Apple Silicon Custom AMX Instructions
@@ -45,8 +84,8 @@ define pcodeop AMXLoadX;
 :amx_ldx Rt_GPR64
 is b_1031=0x804 & b_0509=0 & Rt_GPR64
 {
-	amx0 = *Rt_GPR64;
-	#AMXLoadX();
+	#amx0 = *Rt_GPR64;
+	AMXLoadX();
 }
 
 define pcodeop AMXLoadY;
