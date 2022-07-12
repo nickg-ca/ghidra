@@ -285,7 +285,7 @@ public class ExporterDialog extends DialogComponentProvider implements AddressFa
 	private Component buildFormatChooser() {
 
 		List<Exporter> exporters = getApplicableExporters();
-		comboBox = new GhidraComboBox<>(new Vector<>(exporters));
+		comboBox = new GhidraComboBox<>(exporters);
 
 		Exporter defaultExporter = getDefaultExporter(exporters);
 		if (defaultExporter != null) {
@@ -387,7 +387,11 @@ public class ExporterDialog extends DialogComponentProvider implements AddressFa
 
 	private String appendExporterFileExtension(String filename) {
 		Exporter exporter = getSelectedExporter();
-		String extension = "." + exporter.getDefaultFileExtension();
+		String extension = exporter.getDefaultFileExtension();
+		if (extension.isEmpty()) {
+			return filename;
+		}
+		extension = "." + extension;
 		if (!filename.toLowerCase().endsWith(extension.toLowerCase())) {
 			return filename + extension;
 		}

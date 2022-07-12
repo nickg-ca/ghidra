@@ -13,23 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package classrecovery;
-/* ###
- * IP: GHIDRA
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 //DO NOT RUN. THIS IS NOT A SCRIPT! THIS IS A CLASS THAT IS USED BY SCRIPTS. 
+package classrecovery;
+
 import java.util.*;
 import java.util.Map.Entry;
 
@@ -97,6 +83,7 @@ public class RecoveredClass {
 
 	private boolean inheritsVirtualAncestor = false;
 	private boolean isPublicClass = false;
+	private boolean isDiamondShaped = false;
 
 	private Structure existingClassStructure = null;
 	private Structure computedClassStructure = null;
@@ -108,7 +95,6 @@ public class RecoveredClass {
 	private static final int NONE = -1;
 
 	TaskMonitor monitor = TaskMonitor.DUMMY;
-	EditStructureUtils structUtils;
 
 
 	RecoveredClass(String name, CategoryPath classPath, Namespace classNamespace,
@@ -118,7 +104,6 @@ public class RecoveredClass {
 		this.classNamespace = classNamespace;
 		this.dataTypeManager = dataTypeManager;
 
-		this.structUtils = new EditStructureUtils();
 	}
 
 	public String getName() {
@@ -281,6 +266,14 @@ public class RecoveredClass {
 
 	public boolean isPublicClass() {
 		return isPublicClass;
+	}
+
+	public void setIsDiamondShaped(boolean setting) {
+		isDiamondShaped = setting;
+	}
+
+	public boolean isDiamondShaped() {
+		return isDiamondShaped;
 	}
 
 	public void setHasVftable(boolean setting) {
@@ -493,7 +486,8 @@ public class RecoveredClass {
 
 			int offset = newComponent.getOffset();
 
-			DataTypeComponent currentComponent = computedClassStructure.getComponentAt(offset);
+			DataTypeComponent currentComponent =
+				computedClassStructure.getComponentContaining(offset);
 			DataType currentComponentDataType = currentComponent.getDataType();
 
 			if (currentComponentDataType.equals(newComponentDataType)) {
@@ -514,32 +508,32 @@ public class RecoveredClass {
 				continue;
 			}
 
-			// replace pointers to existing class data type with void pointer of same size
+			// if new component is an existing class data type pointer then replace current item
+			// with a void pointer of same size if there is room
 			if (newComponentDataType instanceof Pointer &&
 				newComponentDataType.getName().equals(name + " *")) {
 
-				DataType voidDT = new VoidDataType();
+				Pointer pointer =
+					new PointerDataType(VoidDataType.dataType, length, dataTypeManager);
 
-				Pointer pointer = new PointerDataType();
-				if (newComponentDataType.getLength() == 4) {
-					pointer = new Pointer32DataType(voidDT);
+				if (EditStructureUtils.hasEnoughUndefinedsOfAnyLengthAtOffset(
+					computedClassStructure, offset, pointer.getLength(), monitor) ||
+					length <= currentComponent.getLength()) {
+
+					computedClassStructure.replaceAtOffset(offset, pointer, length, fieldName,
+						comment);
 				}
-				if (newComponentDataType.getLength() == 8) {
-					pointer = new Pointer64DataType(voidDT);
-				}
-				computedClassStructure.replaceAtOffset(offset, pointer, pointer.getLength(),
-					fieldName, comment);
 				continue;
 			}
 
 			// if the new component is a non-empty structure, check to see if the current
 			// structure has undefined or equivalent components and replace with new struct if so
 			if (newComponentDataType instanceof Structure) {
-				if (structUtils.hasReplaceableComponentsAtOffset(computedClassStructure,
+				if (EditStructureUtils.hasReplaceableComponentsAtOffset(computedClassStructure,
 					offset, (Structure) newComponentDataType, monitor)) {
 
 					boolean successfulClear =
-						structUtils.clearLengthAtOffset(computedClassStructure, offset,
+						EditStructureUtils.clearLengthAtOffset(computedClassStructure, offset,
 							length, monitor);
 
 					if (successfulClear) {
@@ -551,13 +545,14 @@ public class RecoveredClass {
 			}
 
 			// if current component is undefined size 1 and new component is not undefined size 1
-			// then replace it
-			if (structUtils.isUndefined1(currentComponentDataType) &&
-				!structUtils.isUndefined1(newComponentDataType)) {
-				if (structUtils.hasEnoughUndefinedsOfAnyLengthAtOffset(computedClassStructure,
+			// and there are enough undefineds for it to fit, then replace it
+			if (EditStructureUtils.isUndefined1(currentComponentDataType) &&
+				!EditStructureUtils.isUndefined1(newComponentDataType)) {
+				if (EditStructureUtils.hasEnoughUndefinedsOfAnyLengthAtOffset(
+					computedClassStructure,
 					offset, length, monitor)) {
 					boolean successfulClear =
-						structUtils.clearLengthAtOffset(computedClassStructure, offset,
+						EditStructureUtils.clearLengthAtOffset(computedClassStructure, offset,
 							length, monitor);
 
 					if (successfulClear) {
@@ -571,13 +566,14 @@ public class RecoveredClass {
 			// if new component is not an undefined data type and the current componenent(s)
 			// that make up new component length are all undefineds then clear and replace
 			// the current component(s) with the new one
-			if (structUtils.isUndefined(currentComponentDataType) &&
-				!structUtils.isUndefined(newComponentDataType)) {
+			if (Undefined.isUndefined(currentComponentDataType) &&
+				!Undefined.isUndefined(newComponentDataType)) {
 
-				if (structUtils.hasEnoughUndefinedsOfAnyLengthAtOffset(computedClassStructure,
+				if (EditStructureUtils.hasEnoughUndefinedsOfAnyLengthAtOffset(
+					computedClassStructure,
 					offset, length, monitor)) {
 					boolean successfulClear =
-						structUtils.clearLengthAtOffset(computedClassStructure, offset,
+						EditStructureUtils.clearLengthAtOffset(computedClassStructure, offset,
 							length, monitor);
 
 					if (successfulClear) {
@@ -605,7 +601,7 @@ public class RecoveredClass {
 				continue;
 			}
 
-			if (structUtils.isUndefined1(dataType)) {
+			if (EditStructureUtils.isUndefined1(dataType)) {
 				dataType = new Undefined1DataType();
 				DataTypeComponent component =
 					computedClassStructure.getComponentAt(offset.intValue());

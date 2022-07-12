@@ -15,20 +15,22 @@
  */
 package ghidra.app.util.bin.format.dwarf4.next.sectionprovider;
 
+import java.io.IOException;
+
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.MemoryByteProvider;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
-
-import java.io.IOException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Fetches DWARF sections from a normal program using simple Ghidra memory blocks. 
  */
 public class BaseSectionProvider implements DWARFSectionProvider {
-	private Program program;
+	protected Program program;
 
-	public static BaseSectionProvider createSectionProviderFor(Program program) {
+	public static BaseSectionProvider createSectionProviderFor(Program program,
+			TaskMonitor monitor) {
 		return new BaseSectionProvider(program);
 	}
 
@@ -37,15 +39,17 @@ public class BaseSectionProvider implements DWARFSectionProvider {
 	}
 
 	@Override
-	public ByteProvider getSectionAsByteProvider(String sectionName) throws IOException {
+	public ByteProvider getSectionAsByteProvider(String sectionName, TaskMonitor monitor)
+			throws IOException {
 
 		MemoryBlock block = program.getMemory().getBlock(sectionName);
 		if (block == null) {
 			block = program.getMemory().getBlock("." + sectionName);
 		}
-		if (block != null) {
-			// TODO: limit the returned ByteProvider to block.getSize() bytes
-			return new MemoryByteProvider(program.getMemory(), block.getStart());
+		if (block != null && block.isInitialized()) {
+			// NOTE: MemoryByteProvider instances don't need to be closed(), so we don't
+			// track them here
+			return MemoryByteProvider.createMemoryBlockByteProvider(program.getMemory(), block);
 		}
 
 		return null;

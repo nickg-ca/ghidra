@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,63 +15,22 @@
  */
 import ghidra.app.script.GhidraScript;
 import ghidra.program.database.ProgramDB;
-import ghidra.program.model.lang.*;
-import ghidra.program.model.listing.IncompatibleLanguageException;
-import ghidra.program.util.LanguageTranslator;
-import ghidra.program.util.LanguageTranslatorAdapter;
+import ghidra.program.model.lang.Language;
 import ghidra.util.Msg;
-import ghidra.util.exception.AssertException;
-
 
 public class ForceRedisassembly extends GhidraScript {
-	
+
 	@Override
-    public void run() throws Exception {
-		
+	public void run() throws Exception {
+
 		if (currentProgram == null) {
 			Msg.showError(this, null, "No Program Error", "No active program found");
 			return;
 		}
-		ProgramDB program = (ProgramDB)currentProgram;
-		
-		Language lang = program.getLanguage();
-		
-		LanguageTranslator translator = new MyLanguageTranslator(lang.getLanguageID(), lang.getVersion());
-		if (!translator.isValid()) {
-			return;
-		}
-		
-		program.setLanguage(translator, program.getCompilerSpec().getCompilerSpecID(), true, monitor);
-	}
+		ProgramDB program = (ProgramDB) currentProgram;
 
-	private static class MyLanguageTranslator extends LanguageTranslatorAdapter {
-		protected MyLanguageTranslator(LanguageID languageId, int version) {
-			super(languageId, version, languageId, version);
-		}
-		@Override
-		public boolean isValid() {
-			if (super.isValid()) {
-				try {
-					validateDefaultSpaceMap();
-				} catch (IncompatibleLanguageException e) {
-				    throw new AssertException();
-				}
-				Register newContextReg = getNewLanguage().getContextBaseRegister();
-				if (newContextReg != null) {
-					Register oldContextReg = getOldLanguage().getContextBaseRegister();
-					if (oldContextReg == null || !isSameRegisterConstruction(oldContextReg, newContextReg)) {
-						throw new AssertException();
-					}
-				}
-				return true;
-			}
-			return false;
-		}
-		
-		@Override
-		public String toString() {
-			return "[" + getOldLanguageID() + " (Version " + getOldVersion() + ")] -> [" + 
-				getNewLanguageID() + " (Version " + getNewVersion() + ")] {Forced Re-Disassembly Translator}";
-		}
+		Language lang = null;
+
+		program.setLanguage(lang, null, true, monitor);
 	}
 }

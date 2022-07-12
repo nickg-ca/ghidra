@@ -76,16 +76,16 @@ public class GdbModelTargetProcessMemory
 				if (end.longValue() < 0) {
 					BigInteger split = BigInteger.valueOf(Long.MAX_VALUE);
 					GdbMemoryMapping lmem = new GdbMemoryMapping(start, split,
-						split.subtract(start), start.subtract(start), "defaultLow");
+						split.subtract(start), start.subtract(start), "rwx", "defaultLow");
 					defaultMap.put(start, lmem);
 					split = split.add(BigInteger.valueOf(1));
 					GdbMemoryMapping hmem = new GdbMemoryMapping(split, end,
-						end.subtract(split), split.subtract(split), "defaultHigh");
+						end.subtract(split), split.subtract(split), "rwx", "defaultHigh");
 					defaultMap.put(split, hmem);
 				}
 				else {
 					GdbMemoryMapping mem = new GdbMemoryMapping(start, end,
-						end.subtract(start), start.subtract(start), "default");
+						end.subtract(start), start.subtract(start), "rwx", "default");
 					defaultMap.put(start, mem);
 				}
 				regions =
@@ -100,14 +100,18 @@ public class GdbModelTargetProcessMemory
 	}
 
 	@Override
-	public CompletableFuture<Void> requestElements(boolean refresh) {
+	protected CompletableFuture<Void> requestElements(boolean refresh) {
 		// Can't use refresh getKnownMappings is only populated by listMappings
+		return doRefresh();
+	}
+
+	protected CompletableFuture<Void> doRefresh() {
 		if (inferior.getPid() == null) {
 			setElements(List.of(), "Refreshed (while no process)");
 			return AsyncUtils.NIL;
 		}
 		return inferior.listMappings().exceptionally(ex -> {
-			Msg.error(this, "Could not list regions", ex);
+			Msg.error(this, "Could not list regions. Using default.");
 			return Map.of(); // empty map will be replaced with default
 		}).thenAccept(this::updateUsingMappings);
 	}
@@ -181,13 +185,22 @@ public class GdbModelTargetProcessMemory
 		});
 	}
 
+	// TODO: Seems this is only called when sco.getState() == STOPPED.
+	// Maybe should name it such
 	public CompletableFuture<Void> stateChanged(GdbStateChangeRecord sco) {
-		return requestElements(false).thenCompose(__ -> {
+		return doRefresh().thenCompose(__ -> {
 			AsyncFence fence = new AsyncFence();
 			for (GdbModelTargetMemoryRegion modelRegion : regionsByStart.values()) {
 				fence.include(modelRegion.stateChanged(sco));
 			}
 			return fence.ready();
+		});
+	}
+
+	protected CompletableFuture<?> refreshInternal() {
+		return doRefresh().exceptionally(ex -> {
+			impl.reportError(this, "Problem refreshing inferior's memory regions", ex);
+			return null;
 		});
 	}
 }

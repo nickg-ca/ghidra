@@ -22,11 +22,10 @@ import docking.widgets.fieldpanel.field.FieldElement;
 import docking.widgets.fieldpanel.field.TextField;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.services.GoToService;
-import ghidra.app.util.XReferenceUtil;
+import ghidra.app.util.XReferenceUtils;
 import ghidra.app.util.query.TableService;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.util.*;
 
@@ -51,7 +50,7 @@ public class XRefFieldMouseHandler implements FieldMouseHandlerExtension {
 			return false;
 		}
 
-		// If I double-click on the XRef Header, show references to this place, also works on 
+		// If I double-click on the XRef Header, show references to this place, also works on
 		// 'more' field. This is much nicer if you have multiple references to navigate.
 		if (isXREFHeaderLocation(location)) {
 			showXRefDialog(sourceNavigatable, location, serviceProvider);
@@ -85,34 +84,19 @@ public class XRefFieldMouseHandler implements FieldMouseHandlerExtension {
 		return clickedObject.toString();
 	}
 
-	// the unused parameter is needed for overridden method in subclass
-	protected Address getToReferenceAddress(ProgramLocation programLocation, Program program) {
-		return programLocation.getAddress();
-	}
-
 	protected Address getFromReferenceAddress(ProgramLocation programLocation) {
 		return ((XRefFieldLocation) programLocation).getRefAddress();
 	}
 
-	protected int getIndex(ProgramLocation programLocation) {
-		return ((XRefFieldLocation) programLocation).getIndex();
-	}
-
-	private void showXRefDialog(Navigatable navigatable, ProgramLocation location,
+	protected void showXRefDialog(Navigatable navigatable, ProgramLocation location,
 			ServiceProvider serviceProvider) {
 		TableService service = serviceProvider.getService(TableService.class);
 		if (service == null) {
 			return;
 		}
 
-		Set<Reference> refs = XReferenceUtil.getAllXrefs(location);
-		XReferenceUtil.showAllXrefs(navigatable, serviceProvider, service, location, refs);
-	}
-
-	protected ProgramLocation getReferredToLocation(Navigatable sourceNavigatable,
-			ProgramLocation location) {
-		Program program = sourceNavigatable.getProgram();
-		return new CodeUnitLocation(program, getToReferenceAddress(location, program), 0, 0, 0);
+		Set<Reference> refs = XReferenceUtils.getAllXrefs(location);
+		XReferenceUtils.showXrefs(navigatable, serviceProvider, service, location, refs);
 	}
 
 	private boolean goTo(Navigatable navigatable, Address referencedAddress,

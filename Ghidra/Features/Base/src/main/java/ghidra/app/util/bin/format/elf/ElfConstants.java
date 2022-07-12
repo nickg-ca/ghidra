@@ -512,18 +512,10 @@ public interface ElfConstants {
 	/** used by NetBSD/avr32 - AVR 32-bit */
 	public static final short EM_AVR32_unofficial = 0x18ad;
 
-	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-	/**
-	 * The size in bytes of the entry in the program
-	 * location table (PLT).
+	/** 
+	 * PN_XNUM: Used by e_phnum field to signal alternate storage of program header count
+	 * within section[0] sh_info field.
 	 */
-	public static final int PLT_ENTRY_SIZE = 0x10;
-
-	/**
-	 * The size in bytes of the entry in the program
-	 * location table (PLT) in ARM files.
-	 */
-	//public static final int PLT_ENTRY_SIZE_ARM = 0x12;
+	public static final short PN_XNUM = (short) 0xffff;
 
 }

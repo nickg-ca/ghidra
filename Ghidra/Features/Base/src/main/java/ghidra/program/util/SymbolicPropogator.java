@@ -18,6 +18,8 @@ package ghidra.program.util;
 import java.math.BigInteger;
 import java.util.*;
 
+import org.apache.commons.collections4.map.LRUMap;
+
 import generic.util.UnsignedDataUtils;
 import ghidra.app.cmd.disassemble.DisassembleCommand;
 import ghidra.app.cmd.function.CallDepthChangeInfo;
@@ -27,7 +29,6 @@ import ghidra.program.model.data.*;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.scalar.Scalar;
@@ -38,7 +39,7 @@ import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
 public class SymbolicPropogator {
-
+	private static int LRU_SIZE = 4096;
 	// QUESTIONS
 	// 1. How are "register-relative" varnodes distinguished based upon target space ?  Not sure how we handle wrapping/truncation concerns.
 	//   1) The offset is the only thing that could be used as a reference.
@@ -61,7 +62,6 @@ public class SymbolicPropogator {
 	protected boolean canceled = false;
 	protected boolean readExecutableAddress;
 	protected VarnodeContext context;
-	protected boolean conflict;
 
 	protected boolean hitCodeFlow = false; // no branching so far
 
@@ -74,19 +74,33 @@ public class SymbolicPropogator {
 		new NotFoundException("Divide by zero");
 
 	private long pointerMask;
-	private AddressRange externalBlockRange;
 
 	protected static final int MAX_EXACT_INSTRUCTIONS = 100;
+
+	// Cache flows from instructions
+	Map<Address, Address[]> instructionFlowsCache = new LRUMap<>(LRU_SIZE);
+
+	// Cache PcodeOps so that we won't have to grab them again if we re-visit the node.
+	Map<Address, PcodeOp[]> pcodeCache = new LRUMap<>(LRU_SIZE);
+
+	// Cache Instructions looked up by At
+	Map<Address, Instruction> instructionAtCache = new LRUMap<>(LRU_SIZE);
+
+	// Cache instructions looked up by containing
+	Map<Address, Instruction> instructionContainingCache = new LRUMap<>(LRU_SIZE);
+	
+	// cache for pcode callother injection payloads
+	HashMap<Long, InjectPayload> injectPayloadCache = new HashMap<Long, InjectPayload>();
 
 	public SymbolicPropogator(Program program) {
 		this.program = program;
 
 		Language language = program.getLanguage();
+
 		programContext = new ProgramContextImpl(language);
 		spaceContext = new ProgramContextImpl(language);
 
 		setPointerMask(program);
-		setExternalRange(program);
 
 		context = new VarnodeContext(program, programContext, spaceContext);
 		context.setDebug(debug);
@@ -107,18 +121,6 @@ public class SymbolicPropogator {
 			ptrSize = 8;
 		}
 		pointerMask = maskSize[ptrSize];
-	}
-
-	/**
-	 * Identify EXTERNAL block range which should not be disassembled.
-	 * @param program
-	 * @return EXTERNAL block range or null if not found
-	 */
-	private void setExternalRange(Program program) {
-		MemoryBlock block = program.getMemory().getBlock(MemoryBlock.EXTERNAL_BLOCK_NAME);
-		if (block != null) {
-			externalBlockRange = new AddressRangeImpl(block.getStart(), block.getEnd());
-		}
 	}
 
 	/**
@@ -357,12 +359,13 @@ public class SymbolicPropogator {
 		Address destination;
 		boolean continueAfterHittingFlow;
 
-		public SavedFlowState(Address source, Address destination,
+		public SavedFlowState(VarnodeContext vContext, Address source, Address destination,
 				boolean continueAfterHittingFlow) {
 			super();
 			this.source = source;
 			this.destination = destination;
 			this.continueAfterHittingFlow = continueAfterHittingFlow;
+			vContext.pushMemState();
 		}
 
 		public Address getSource() {
@@ -375,6 +378,10 @@ public class SymbolicPropogator {
 
 		public boolean isContinueAfterHittingFlow() {
 			return continueAfterHittingFlow;
+		}
+
+		public void restoreState(VarnodeContext vContext) {
+			vContext.popMemState();
 		}
 	}
 
@@ -401,7 +408,7 @@ public class SymbolicPropogator {
 
 		// prime the context stack with the entry point address
 		Stack<SavedFlowState> contextStack = new Stack<>();
-		contextStack.push(new SavedFlowState(fromAddr, startAddr, true));
+		contextStack.push(new SavedFlowState(vContext, fromAddr, startAddr, true));
 		canceled = false;
 
 		// only stop flowing on unknown bad calls when the stack depth could be unknown
@@ -424,6 +431,7 @@ public class SymbolicPropogator {
 			Address nextAddr = nextFlow.getDestination();
 			Address flowFromAddr = nextFlow.getSource();
 			boolean continueAfterHittingFlow = nextFlow.isContinueAfterHittingFlow();
+			nextFlow.restoreState(vContext);
 
 			// already done it!
 			if (body.contains(nextAddr)) {
@@ -470,12 +478,13 @@ public class SymbolicPropogator {
 					break;
 				}
 
+				Address minInstrAddress = instr.getMinAddress();
 				maxAddr = instr.getMaxAddress();
 
 				// if this instruction has a delay slot, adjust maxAddr accordingly
 				//
 				if (instr.getPrototype().hasDelaySlots()) {
-					maxAddr = instr.getMinAddress().add(instr.getDefaultFallThroughOffset() - 1);
+					maxAddr = minInstrAddress.add(instr.getDefaultFallThroughOffset() - 1);
 				}
 
 				vContext.setCurrentInstruction(instr);
@@ -492,11 +501,10 @@ public class SymbolicPropogator {
 				//
 				// apply the pcode effects
 				//
-				conflict = false;
 				Address retAddr = applyPcode(vContext, instr, monitor);
 
 				// add this instruction to processed body set
-				body.addRange(instr.getMinAddress(), maxAddr);
+				body.addRange(minInstrAddress, maxAddr);
 
 				/* Allow evaluateContext routine to change override the flowtype of an instruction.
 				 * Jumps Changed to calls will now continue processing.
@@ -538,8 +546,8 @@ public class SymbolicPropogator {
 						}
 						if (!instrFlow.isCall()) {
 							for (Address flow : flows) {
-								contextStack.push(new SavedFlowState(instr.getMinAddress(), flow,
-									continueAfterHittingFlow));
+								contextStack.push(new SavedFlowState(vContext, minInstrAddress,
+									flow, continueAfterHittingFlow));
 							}
 						}
 						else if (flows.length > 1) {
@@ -548,7 +556,7 @@ public class SymbolicPropogator {
 							for (Reference flowRef : flowRefs) {
 								RefType referenceType = flowRef.getReferenceType();
 								if (referenceType.isComputed() && referenceType.isJump()) {
-									contextStack.push(new SavedFlowState(instr.getMinAddress(),
+									contextStack.push(new SavedFlowState(vContext, minInstrAddress,
 										flowRef.getToAddress(), continueAfterHittingFlow));
 								}
 							}
@@ -569,13 +577,13 @@ public class SymbolicPropogator {
 						vContext.mergeToFutureFlowState(maxAddr, inlineCall);
 						vContext.flowEnd(maxAddr);
 						flowConstants(maxAddr, inlineCall, func.getBody(), eval, vContext, monitor);
-						vContext.mergeToFutureFlowState(instr.getMinAddress(), maxAddr);
+						vContext.mergeToFutureFlowState(minInstrAddress, maxAddr);
 
 						//
 						// TODO: WARNING, might not start the flow correctly if there is no future flow here.
 						//       FLOW end will probably work correctly, but....
 						//
-						vContext.flowStart(instr.getMinAddress(), maxAddr);
+						vContext.flowStart(minInstrAddress, maxAddr);
 					}
 				}
 
@@ -584,24 +592,29 @@ public class SymbolicPropogator {
 				Address fallThru = instr.getFallThrough();
 				nextAddr = null;
 				if (retAddr != null) {
-					contextStack.push(new SavedFlowState(instr.getMinAddress(), retAddr,
+					contextStack.push(new SavedFlowState(vContext, minInstrAddress, retAddr,
 						continueAfterHittingFlow));
 					fallThru = null;
 				}
 
 				if (fallThru != null) {
 					if (doFallThruLast) {
+						vContext.mergeToFutureFlowState(minInstrAddress, fallThru);
+
 						// put it lowest on the stack to do later!
-						contextStack.add(0, new SavedFlowState(instr.getMinAddress(), fallThru,
+						contextStack.push(new SavedFlowState(vContext, minInstrAddress, fallThru,
 							!callCouldCauseBadStackDepth));
 					}
 					else if (fallThru.compareTo(maxAddr) < 0) {
 						// this isn't a normal fallthru, must break it up
 						//   don't continue flowing if something else is hit, this is an odd case
-						contextStack.add(0,
-							new SavedFlowState(instr.getMinAddress(), fallThru, false));
+						vContext.mergeToFutureFlowState(minInstrAddress, fallThru);
+
+						contextStack.push(
+							new SavedFlowState(vContext, minInstrAddress, fallThru, false));
 					}
 					else {
+						// no need to store future flow state, will continue on the fall-thru flow
 						nextAddr = fallThru;
 						fallThru = null;
 					}
@@ -677,10 +690,6 @@ public class SymbolicPropogator {
 		return false;
 	}
 
-	// Cache PcodeOps so that we won't have to grab them again if we re-visit the node.
-	//
-	HashMap<Address, PcodeOp[]> pcodeCache = new HashMap<>();
-
 	private PcodeOp[] getInstructionPcode(Instruction instruction) {
 		PcodeOp ops[] = pcodeCache.get(instruction.getMinAddress());
 		if (ops == null) {
@@ -689,12 +698,6 @@ public class SymbolicPropogator {
 		}
 		return ops;
 	}
-
-	// Cache Instructions looked up by At
-	HashMap<Address, Instruction> instructionAtCache = new HashMap<>();
-
-	// Cache instructions looked up by containing
-	HashMap<Address, Instruction> instructionContainingCache = new HashMap<>();
 
 	private Instruction getInstructionAt(Address addr) {
 		Instruction instr = instructionAtCache.get(addr);
@@ -732,9 +735,6 @@ public class SymbolicPropogator {
 		return instr;
 	}
 
-	// Cache flows from instructions
-	HashMap<Address, Address[]> instructionFlowsCache = new HashMap<>();
-
 	private Address[] getInstructionFlows(Instruction instruction) {
 		Address addr = instruction.getMinAddress();
 
@@ -767,6 +767,9 @@ public class SymbolicPropogator {
 			Msg.info(this, minInstrAddress + "   " + instruction);
 		}
 
+		// callfixup injection targets that have already been used
+		HashSet<Address> previousInjectionTarget = new HashSet<>();
+
 		int mustClearAllUntil_PcodeIndex = -1;
 		// flag won't get set until there is something to clear
 		boolean mustClearAll = false;
@@ -778,16 +781,17 @@ public class SymbolicPropogator {
 
 			mustClearAll = pcodeIndex < mustClearAllUntil_PcodeIndex;
 
-			ptype = ops[pcodeIndex].getOpcode();
-			Varnode out = ops[pcodeIndex].getOutput();
-			Varnode[] in = ops[pcodeIndex].getInputs();
+			PcodeOp pcodeOp = ops[pcodeIndex];
+			ptype = pcodeOp.getOpcode();
+			Varnode out = pcodeOp.getOutput();
+			Varnode[] in = pcodeOp.getInputs();
 
 			Varnode val1, val2, val3, result;
 			long lval1, lval2;
 			long lresult;
 			Varnode vt;
 			if (debug) {
-				Msg.info(this, "   " + ops[pcodeIndex]);
+				Msg.info(this, "   " + pcodeOp);
 			}
 
 			try {
@@ -849,8 +853,8 @@ public class SymbolicPropogator {
 						for (Reference flowRef : flowRefs) {
 							RefType referenceType = flowRef.getReferenceType();
 							if (referenceType.isComputed() && referenceType.isJump()) {
-								conflict |= vContext.mergeToFutureFlowState(
-									flowRef.getFromAddress(), flowRef.getToAddress());
+								vContext.mergeToFutureFlowState(flowRef.getFromAddress(),
+									flowRef.getToAddress());
 							}
 						}
 
@@ -915,8 +919,7 @@ public class SymbolicPropogator {
 						if (target != null) {
 							if (target.isMemoryAddress()) {
 								vContext.propogateResults(false);
-								conflict |=
-									vContext.mergeToFutureFlowState(minInstrAddress, target);
+								vContext.mergeToFutureFlowState(minInstrAddress, target);
 							}
 							func = prog.getFunctionManager().getFunctionAt(target);
 							if (func == null && ptype == PcodeOp.CALLIND) {
@@ -931,12 +934,17 @@ public class SymbolicPropogator {
 								}
 							}
 							// check for pcode replacement - callfixup
-							PcodeOp[] injectionPcode = checkForCallFixup(prog, func, instruction);
-							if (injectionPcode != null && injectionPcode.length > 0) {
-								ops = injectPcode(ops, pcodeIndex, injectionPcode);
-								pcodeIndex = -1;
-								injected = true;
-								continue;
+							//   don't re-inject to the same site.
+							if (!previousInjectionTarget.contains(target)) {
+								PcodeOp[] injectionPcode =
+									checkForCallFixup(prog, func, instruction);
+								if (injectionPcode != null && injectionPcode.length > 0) {
+									previousInjectionTarget.add(target);
+									ops = injectPcode(ops, pcodeIndex, injectionPcode);
+									pcodeIndex = -1;
+									injected = true;
+									continue;
+								}
 							}
 						}
 
@@ -956,12 +964,12 @@ public class SymbolicPropogator {
 
 					// for callother, could be an interrupt, need to look at it like a call
 					case PcodeOp.CALLOTHER:
-						// HACK ALERT!
-						// if this is a segment op, emulate the segmenting for now.
-						String opName = this.program.getLanguage()
-								.getUserDefinedOpName((int) in[0].getOffset());
-						if (opName.equals("segment") && in.length > 2) {
-							checkSegmented(out, in[1], in[2], mustClearAll);
+						PcodeOp[] callOtherPcode = doCallOtherPcodeInjection(instruction, in, out);
+						
+						if (callOtherPcode != null) {
+							ops = injectPcode(ops, pcodeIndex, callOtherPcode);
+							pcodeIndex = -1;
+							injected = true;
 						}
 						else if (out != null) {
 							// clear out settings for the output from call other.
@@ -988,8 +996,7 @@ public class SymbolicPropogator {
 								instruction.getAddress());
 						}
 						vContext.propogateResults(false);
-						conflict |=
-							vContext.mergeToFutureFlowState(minInstrAddress, in[0].getAddress());
+						vContext.mergeToFutureFlowState(minInstrAddress, in[0].getAddress());
 						pcodeIndex = ops.length; // break out of the processing
 						break;
 
@@ -1000,15 +1007,14 @@ public class SymbolicPropogator {
 							int sequenceOffset = (int) in[0].getOffset();
 							if ((pcodeIndex + sequenceOffset) >= ops.length) {
 								vContext.propogateResults(false);
-								conflict |= vContext.mergeToFutureFlowState(minInstrAddress,
+								vContext.mergeToFutureFlowState(minInstrAddress,
 									instruction.getFallThrough());
 							}
 						}
 						else if (in[0].isAddress()) {
 							vt = in[0];
 							vContext.propogateResults(false);
-							conflict |= vContext.mergeToFutureFlowState(minInstrAddress,
-								in[0].getAddress());
+							vContext.mergeToFutureFlowState(minInstrAddress, in[0].getAddress());
 						}
 
 						Varnode condition = null;
@@ -1037,7 +1043,7 @@ public class SymbolicPropogator {
 								// if internal flow joins back together, just skip over effect
 								// Warning this is arbitrary choice of one branch over the other....!!!
 								// look at pcode up to destination, if all non flow or internal, just skip
-								int sequenceOffset = (int) in[0].getOffset();
+								int sequenceOffset = pcodeIndex + (int) in[0].getOffset();
 								int i = pcodeIndex + 1;
 								for (; i < sequenceOffset; i++) {
 									if (isBranch(ops[i])) {
@@ -1045,12 +1051,6 @@ public class SymbolicPropogator {
 									}
 								}
 								if (i == sequenceOffset) {
-									if (fallThru != null) {
-										// we don't know what will happen from here on, but anything before should in theory propagate
-										vContext.propogateResults(true);
-										conflict |= vContext.mergeToFutureFlowState(minInstrAddress,
-											instruction.getFallThrough());
-									}
 									// everything that is in the cache from here on should be cleared
 									mustClearAllUntil_PcodeIndex = sequenceOffset;
 									break;
@@ -1424,11 +1424,6 @@ public class SymbolicPropogator {
 			//   assume the future flow will have flowed the correct info.
 			nextAddr = fallthru;
 		}
-		else {
-			if (fallthru != null) {
-				conflict |= vContext.mergeToFutureFlowState(minInstrAddress, fallthru);
-			}
-		}
 
 		return nextAddr;
 	}
@@ -1631,27 +1626,73 @@ public class SymbolicPropogator {
 		return currentPcode;
 	}
 
-	private void checkSegmented(Varnode out, Varnode in1, Varnode in2, boolean mustClearAll)
-			throws NotFoundException {
-		Varnode vval1 = context.getValue(in1, evaluator);
-		Varnode vval2 = context.getValue(in2, evaluator);
-		if (vval1.isConstant() && vval2.isConstant()) {
-			int bitsize = program.getAddressFactory().getDefaultAddressSpace().getSize();
-			long segBase;
-			if (bitsize > 24) {
-				segBase = context.getConstant(vval1, evaluator) << 16;
-			}
-			else if (bitsize == 24) {
-				segBase = context.getConstant(vval1, evaluator) << 8;
-			}
-			else {
-				segBase = context.getConstant(vval1, evaluator) << 4;
-			}
-			vval1 = context.createConstantVarnode(segBase, out.getSize());
-			vval2 = context.createConstantVarnode(vval2.getOffset(), out.getSize());
-			Varnode segmentedValue = context.add(vval1, vval2, evaluator);
-			context.putValue(out, segmentedValue, mustClearAll);
+	/**
+	 * Check for pcode replacement for a callother pcode op
+	 * 
+	 * @param instr instruction whose pcodeop we might replace
+	 * @param ins input varnodes to callother pcodeop, ins[0] is callother nameindex
+	 * @param out output varnode for pcodeop
+	 * @return pcode that should replace callother, null otherwise
+	 * 
+	 * @throws NotFoundException
+	 */
+	private PcodeOp[] doCallOtherPcodeInjection(Instruction instr, Varnode ins[], Varnode out) throws NotFoundException {
+		Program prog = instr.getProgram();
+
+		PcodeInjectLibrary snippetLibrary = prog.getCompilerSpec().getPcodeInjectLibrary();
+		InjectPayload payload = findPcodeInjection(prog, snippetLibrary, ins[0].getOffset());
+		// no injection defined for this call-other pcodeop
+		if (payload == null) {
+			return null;
 		}
+
+		ArrayList<Varnode> inputs = new ArrayList<Varnode>();
+		for (int i = 1; i < ins.length; i++) {
+			Varnode vval = context.getValue(ins[i], evaluator);
+			if (!vval.isConstant()) {
+				return null;
+			}
+			inputs.add(vval);
+		}
+
+		InjectContext con = snippetLibrary.buildInjectContext();
+		con.baseAddr = instr.getMinAddress();
+		con.nextAddr = con.baseAddr.add(instr.getDefaultFallThroughOffset());
+		con.callAddr = null;
+		con.refAddr = con.callAddr;
+		con.inputlist = inputs;
+		con.output = new ArrayList<Varnode>();
+		con.output.add(out);
+		return payload.getPcode(prog, con);
+	}
+	
+	private InjectPayload findPcodeInjection(Program prog, PcodeInjectLibrary snippetLibrary, long callOtherIndex) {
+		InjectPayload payload = (InjectPayload) injectPayloadCache.get(callOtherIndex);
+		
+		// has a payload value for the pcode callother index
+		if (payload != null) {
+			return payload;
+		}
+		
+		// value null, if contains the key, then already looked up
+		if (injectPayloadCache.containsKey(callOtherIndex)) {
+			return null;
+		}
+		
+		String opName = prog.getLanguage().getUserDefinedOpName((int) callOtherIndex);
+		
+		// segment is special named injection
+		if ("segment".equals(opName)) {	
+			payload =
+				snippetLibrary.getPayload(InjectPayload.EXECUTABLEPCODE_TYPE, "segment_pcode");
+		}
+		else {
+			payload = snippetLibrary.getPayload(InjectPayload.CALLOTHERFIXUP_TYPE, opName);
+		}
+		
+		// save payload in cache for next lookup
+		injectPayloadCache.put(callOtherIndex, payload);
+		return payload;
 	}
 
 	/**
@@ -1763,7 +1804,7 @@ public class SymbolicPropogator {
 			signatureSource = func.getSignatureSource();
 		}
 
-		long callOffset = (callTarget == null ? 0 : callTarget.getOffset());
+		long callOffset = (callTarget == null ? -1 : callTarget.getOffset());
 
 		// If there are params defined or the params were specified (meaning it could be VOID params)
 		boolean signatureAssigned = signatureSource != SourceType.DEFAULT;
@@ -2324,7 +2365,7 @@ public class SymbolicPropogator {
 		}
 
 		if (refType.isFlow() && !refType.isIndirect() &&
-			(externalBlockRange == null || !externalBlockRange.contains(target))) {
+			!program.getMemory().isExternalBlockAddress(target)) {
 			Data udata = program.getListing().getUndefinedDataAt(target);
 			if (udata != null) {
 				DisassembleCommand cmd = new DisassembleCommand(target, null, true);
@@ -2408,9 +2449,6 @@ public class SymbolicPropogator {
 		}
 		catch (CodeUnitInsertionException e) {
 			data = program.getListing().getDefinedDataAt(address);
-		}
-		catch (DataTypeConflictException e) {
-			// do nothing
 		}
 		int addrByteSize = dt.getLength();
 

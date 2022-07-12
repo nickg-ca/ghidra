@@ -46,6 +46,7 @@ import ghidra.app.plugin.core.debug.gui.DebuggerProvider;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources;
 import ghidra.app.plugin.core.debug.mapping.DebuggerRegisterMapper;
 import ghidra.app.services.*;
+import ghidra.app.services.DebuggerStateEditingService.StateEditor;
 import ghidra.async.AsyncLazyValue;
 import ghidra.async.AsyncUtils;
 import ghidra.base.widgets.table.DataTypeTableCellEditor;
@@ -62,7 +63,7 @@ import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.framework.plugintool.annotation.AutoServiceConsumed;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.DataTypeConflictException;
+import ghidra.program.model.data.DataTypeEncodeException;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.trace.model.*;
@@ -88,12 +89,16 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 
 	protected enum RegisterTableColumns
 		implements EnumeratedTableColumn<RegisterTableColumns, RegisterRow> {
-		FAV("Fav", Boolean.class, RegisterRow::isFavorite, RegisterRow::setFavorite, r -> true, SortDirection.DESCENDING),
+		FAV("Fav", Boolean.class, RegisterRow::isFavorite, RegisterRow::setFavorite, //
+				r -> true, SortDirection.DESCENDING),
 		NUMBER("#", Integer.class, RegisterRow::getNumber),
 		NAME("Name", String.class, RegisterRow::getName),
-		VALUE("Value", BigInteger.class, RegisterRow::getValue, RegisterRow::setValue, RegisterRow::isValueEditable, SortDirection.ASCENDING),
-		TYPE("Type", DataType.class, RegisterRow::getDataType, RegisterRow::setDataType, r -> true, SortDirection.ASCENDING),
-		REPR("Repr", String.class, RegisterRow::getRepresentation);
+		VALUE("Value", BigInteger.class, RegisterRow::getValue, RegisterRow::setValue, //
+				RegisterRow::isValueEditable, SortDirection.ASCENDING),
+		TYPE("Type", DataType.class, RegisterRow::getDataType, RegisterRow::setDataType, //
+				r -> true, SortDirection.ASCENDING),
+		REPR("Repr", String.class, RegisterRow::getRepresentation, RegisterRow::setRepresentation, //
+				RegisterRow::isRepresentationEditable, SortDirection.ASCENDING);
 
 		private final String header;
 		private final Function<RegisterRow, ?> getter;
@@ -387,6 +392,8 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 	@AutoServiceConsumed
 	private DebuggerListingService listingService;
 	@AutoServiceConsumed
+	private DebuggerStateEditingService editingService;
+	@AutoServiceConsumed
 	private MarkerService markerService; // TODO: Mark address types (separate plugin?)
 	@SuppressWarnings("unused")
 	private final AutoService.Wiring autoServiceWiring;
@@ -434,6 +441,7 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 
 	DebuggerRegisterActionContext myActionContext;
 	AddressSetView viewKnown;
+	AddressSetView catalog;
 
 	protected DebuggerRegistersProvider(final DebuggerRegistersPlugin plugin,
 			Map<LanguageCompilerSpecPair, LinkedHashSet<Register>> selectionByCSpec,
@@ -550,7 +558,7 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 			}
 			Address address;
 			try {
-				address = space.getAddress(lv);
+				address = space.getAddress(lv, true);
 			}
 			catch (AddressOutOfBoundsException e) {
 				continue;
@@ -600,12 +608,12 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 				.onAction(c -> selectRegistersActivated())
 				.buildAndInstallLocal(this);
 		if (!isClone) {
-			actionCreateSnapshot = DebuggerResources.CreateSnapshotAction.builder(plugin)
+			actionCreateSnapshot = DebuggerResources.CloneWindowAction.builder(plugin)
 					.enabledWhen(c -> current.getThread() != null)
-					.onAction(c -> createSnapshotActivated())
+					.onAction(c -> cloneWindowActivated())
 					.buildAndInstallLocal(this);
 		}
-		actionEnableEdits = DebuggerResources.EnableRegisterEditsAction.builder(plugin)
+		actionEnableEdits = DebuggerResources.EnableEditsAction.builder(plugin)
 				.enabledWhen(c -> current.getThread() != null)
 				.onAction(c -> {
 				})
@@ -631,7 +639,7 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		tool.showDialog(availableRegsDialog);
 	}
 
-	private void createSnapshotActivated() {
+	private void cloneWindowActivated() {
 		DebuggerRegistersProvider clone = cloneAsDisconnected();
 		clone.setIntraGroupPosition(WindowPosition.RIGHT);
 		tool.showComponentProvider(clone, true);
@@ -688,6 +696,20 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		removeOldTraceListener();
 		this.currentTrace = trace;
 		addNewTraceListener();
+
+		catalogRegisterAddresses();
+	}
+
+	private void catalogRegisterAddresses() {
+		this.catalog = null;
+		if (currentTrace == null) {
+			return;
+		}
+		AddressSet catalog = new AddressSet();
+		for (Register reg : currentTrace.getBaseLanguage().getRegisters()) {
+			catalog.add(TraceRegisterUtils.rangeForRegister(reg));
+		}
+		this.catalog = catalog;
 	}
 
 	private void removeOldRecorderListener() {
@@ -742,29 +764,15 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		}
 	}
 
-	boolean canWriteTarget() {
-		if (!current.isAliveAndPresent()) {
+	boolean canWriteRegister(Register register) {
+		if (!isEditsEnabled()) {
 			return false;
 		}
-		TraceRecorder recorder = current.getRecorder();
-		TargetRegisterBank targetRegs =
-			recorder.getTargetRegisterBank(current.getThread(), current.getFrame());
-		if (targetRegs == null) {
+		if (editingService == null) {
 			return false;
 		}
-		return true;
-	}
-
-	boolean canWriteTargetRegister(Register register) {
-		if (!computeEditsEnabled()) {
-			return false;
-		}
-		Collection<Register> onTarget =
-			current.getRecorder().getRegisterMapper(current.getThread()).getRegistersOnTarget();
-		if (!onTarget.contains(register) && !onTarget.contains(register.getBaseRegister())) {
-			return false;
-		}
-		return true;
+		StateEditor editor = editingService.createStateEditor(current);
+		return editor.isRegisterEditable(register);
 	}
 
 	BigInteger getRegisterValue(Register register) {
@@ -780,10 +788,21 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 	}
 
 	void writeRegisterValue(RegisterValue rv) {
-		rv = combineWithTraceBaseRegisterValue(rv);
-		CompletableFuture<Void> future = current.getRecorder()
-				.writeThreadRegisters(current.getThread(), current.getFrame(),
-					Map.of(rv.getRegister(), rv));
+		if (editingService == null) {
+			Msg.showError(this, getComponent(), "Edit Register", "No editing service.");
+			return;
+		}
+		StateEditor editor = editingService.createStateEditor(current);
+		if (!editor.isRegisterEditable(rv.getRegister())) {
+			rv = combineWithTraceBaseRegisterValue(rv);
+		}
+		if (!editor.isRegisterEditable(rv.getRegister())) {
+			Msg.showError(this, getComponent(), "Edit Register",
+				"Neither the register nor its base can be edited.");
+			return;
+		}
+
+		CompletableFuture<Void> future = editor.setRegister(rv);
 		future.exceptionally(ex -> {
 			ex = AsyncUtils.unwrapThrowable(ex);
 			if (ex instanceof DebuggerModelAccessException) {
@@ -797,11 +816,12 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 			}
 			return null;
 		});
+		return;
 	}
 
 	private RegisterValue combineWithTraceBaseRegisterValue(RegisterValue rv) {
 		TraceMemoryRegisterSpace regs = getRegisterMemorySpace(false);
-		long snap = current.getSnap();
+		long snap = current.getViewSnap();
 		return TraceRegisterUtils.combineWithTraceBaseRegisterValue(rv, snap, regs, true);
 	}
 
@@ -814,14 +834,14 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		try (UndoableTransaction tid =
 			UndoableTransaction.start(current.getTrace(), "Edit Register Type", false)) {
 			TraceCodeRegisterSpace space = getRegisterMemorySpace(true).getCodeSpace(true);
-			long snap = current.getSnap();
+			long snap = current.getViewSnap();
 			space.definedUnits().clear(Range.closed(snap, snap), register, TaskMonitor.DUMMY);
 			if (dataType != null) {
 				space.definedData().create(Range.atLeast(snap), register, dataType);
 			}
 			tid.commit();
 		}
-		catch (CodeUnitInsertionException | DataTypeConflictException | CancelledException e) {
+		catch (CodeUnitInsertionException | CancelledException e) {
 			throw new AssertionError(e);
 		}
 	}
@@ -831,7 +851,7 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		if (space == null) {
 			return null;
 		}
-		long snap = current.getSnap();
+		long snap = current.getViewSnap();
 		return space.definedData().getForRegister(snap, register);
 	}
 
@@ -843,6 +863,35 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		return data.getDataType();
 	}
 
+	void writeRegisterValueRepresentation(Register register, String representation) {
+		TraceData data = getRegisterData(register);
+		if (data == null) {
+			// isEditable should have been false
+			tool.setStatusInfo("Register has no data type", true);
+			return;
+		}
+		try {
+			RegisterValue rv = TraceRegisterUtils.encodeValueRepresentationHackPointer(
+				register, data, representation);
+			writeRegisterValue(rv);
+		}
+		catch (DataTypeEncodeException e) {
+			tool.setStatusInfo(e.getMessage(), true);
+			return;
+		}
+	}
+
+	boolean canWriteRegisterRepresentation(Register register) {
+		if (!canWriteRegister(register)) {
+			return false;
+		}
+		TraceData data = getRegisterData(register);
+		if (data == null) {
+			return false;
+		}
+		return data.getBaseDataType().isEncodable();
+	}
+
 	String getRegisterValueRepresentation(Register register) {
 		TraceData data = getRegisterData(register);
 		if (data == null) {
@@ -852,6 +901,10 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 	}
 
 	void recomputeViewKnown() {
+		if (catalog == null) {
+			viewKnown = null;
+			return;
+		}
 		TraceMemoryRegisterSpace regs = getRegisterMemorySpace(false);
 		TraceProgramView view = current.getView();
 		if (regs == null || view == null) {
@@ -859,7 +912,7 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 			return;
 		}
 		viewKnown = new AddressSet(view.getViewport()
-				.unionedAddresses(snap -> regs.getAddressesWithState(snap,
+				.unionedAddresses(snap -> regs.getAddressesWithState(snap, catalog,
 					state -> state == TraceMemoryState.KNOWN)));
 	}
 
@@ -891,11 +944,8 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		return !Objects.equals(curRegVal, prevRegVal);
 	}
 
-	private boolean computeEditsEnabled() {
-		if (!actionEnableEdits.isSelected()) {
-			return false;
-		}
-		return canWriteTarget();
+	private boolean isEditsEnabled() {
+		return actionEnableEdits.isSelected();
 	}
 
 	/**
@@ -911,8 +961,14 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 	public static LinkedHashSet<Register> collectCommonRegisters(CompilerSpec cSpec) {
 		Language lang = cSpec.getLanguage();
 		LinkedHashSet<Register> result = new LinkedHashSet<>();
-		result.add(cSpec.getStackPointer());
-		result.add(lang.getProgramCounter());
+		Register sp = cSpec.getStackPointer();
+		if (sp != null) {
+			result.add(sp);
+		}
+		Register pc = lang.getProgramCounter();
+		if (pc != null) {
+			result.add(pc);
+		}
 		for (Register reg : lang.getRegisters()) {
 			//if (reg.getGroup() != null) {
 			//	continue;
@@ -1073,6 +1129,14 @@ public class DebuggerRegistersProvider extends ComponentProviderAdapter
 		selection.clear();
 		selection.addAll(new TreeSet<>(selectedRegisters));
 		return loadRegistersAndValues();
+	}
+
+	public RegisterRow getRegisterRow(Register register) {
+		return regMap.get(register);
+	}
+
+	public void setSelectedRow(RegisterRow row) {
+		regsFilterPanel.setSelectedItem(row);
 	}
 
 	public DebuggerRegistersProvider cloneAsDisconnected() {

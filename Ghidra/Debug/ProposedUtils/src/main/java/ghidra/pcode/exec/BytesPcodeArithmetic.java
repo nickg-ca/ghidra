@@ -22,13 +22,39 @@ import ghidra.pcode.opbehavior.UnaryOpBehavior;
 import ghidra.pcode.utils.Utils;
 import ghidra.program.model.lang.Language;
 
+/**
+ * A p-code arithmetic that operates on byte array values
+ * 
+ * <p>
+ * The arithmetic interprets the arrays as big- or little-endian values, then performs the
+ * arithmetic as specified by the p-code operation.
+ */
 public enum BytesPcodeArithmetic implements PcodeArithmetic<byte[]> {
-	BIG_ENDIAN(true), LITTLE_ENDIAN(false);
+	/**
+	 * The instance which interprets arrays as big-endian values
+	 */
+	BIG_ENDIAN(true),
+	/**
+	 * The instance which interprets arrays as little-endian values
+	 */
+	LITTLE_ENDIAN(false);
 
+	/**
+	 * Obtain the instance for the given endianness
+	 * 
+	 * @param bigEndian true for {@link #BIG_ENDIAN}, false of {@link #LITTLE_ENDIAN}
+	 * @return the arithmetic
+	 */
 	public static BytesPcodeArithmetic forEndian(boolean bigEndian) {
 		return bigEndian ? BIG_ENDIAN : LITTLE_ENDIAN;
 	}
 
+	/**
+	 * Obtain the instance for the given language's endianness
+	 * 
+	 * @param language the language
+	 * @return the arithmetic
+	 */
 	public static BytesPcodeArithmetic forLanguage(Language language) {
 		return forEndian(language.isBigEndian());
 	}
@@ -40,31 +66,32 @@ public enum BytesPcodeArithmetic implements PcodeArithmetic<byte[]> {
 	}
 
 	@Override
-	public byte[] unaryOp(UnaryOpBehavior op, int sizeout, int sizein, byte[] in1) {
-		if (sizein > 8 || sizeout > 8) {
-			BigInteger in1Val = Utils.bytesToBigInteger(in1, sizein, isBigEndian, false);
-			BigInteger outVal = op.evaluateUnary(sizeout, sizein, in1Val);
+	public byte[] unaryOp(UnaryOpBehavior op, int sizeout, int sizein1, byte[] in1) {
+		if (sizein1 > 8 || sizeout > 8) {
+			BigInteger in1Val = Utils.bytesToBigInteger(in1, in1.length, isBigEndian, false);
+			BigInteger outVal = op.evaluateUnary(sizeout, sizein1, in1Val);
 			return Utils.bigIntegerToBytes(outVal, sizeout, isBigEndian);
 		}
 		else {
-			long in1Val = Utils.bytesToLong(in1, sizein, isBigEndian);
-			long outVal = op.evaluateUnary(sizeout, sizein, in1Val);
+			long in1Val = Utils.bytesToLong(in1, sizein1, isBigEndian);
+			long outVal = op.evaluateUnary(sizeout, sizein1, in1Val);
 			return Utils.longToBytes(outVal, sizeout, isBigEndian);
 		}
 	}
 
 	@Override
-	public byte[] binaryOp(BinaryOpBehavior op, int sizeout, int sizein, byte[] in1, byte[] in2) {
-		if (sizein > 8 || sizeout > 8) {
-			BigInteger in1Val = Utils.bytesToBigInteger(in1, sizein, isBigEndian, false);
-			BigInteger in2Val = Utils.bytesToBigInteger(in2, sizein, isBigEndian, false);
-			BigInteger outVal = op.evaluateBinary(sizeout, sizein, in1Val, in2Val);
+	public byte[] binaryOp(BinaryOpBehavior op, int sizeout, int sizein1, byte[] in1, int sizein2,
+			byte[] in2) {
+		if (sizein1 > 8 || sizein2 > 8 || sizeout > 8) {
+			BigInteger in1Val = Utils.bytesToBigInteger(in1, sizein1, isBigEndian, false);
+			BigInteger in2Val = Utils.bytesToBigInteger(in2, sizein2, isBigEndian, false);
+			BigInteger outVal = op.evaluateBinary(sizeout, sizein1, in1Val, in2Val);
 			return Utils.bigIntegerToBytes(outVal, sizeout, isBigEndian);
 		}
 		else {
-			long in1Val = Utils.bytesToLong(in1, sizein, isBigEndian);
-			long in2Val = Utils.bytesToLong(in2, sizein, isBigEndian);
-			long outVal = op.evaluateBinary(sizeout, sizein, in1Val, in2Val);
+			long in1Val = Utils.bytesToLong(in1, sizein1, isBigEndian);
+			long in2Val = Utils.bytesToLong(in2, sizein2, isBigEndian);
+			long outVal = op.evaluateBinary(sizeout, sizein1, in1Val, in2Val);
 			return Utils.longToBytes(outVal, sizeout, isBigEndian);
 		}
 	}
@@ -75,8 +102,8 @@ public enum BytesPcodeArithmetic implements PcodeArithmetic<byte[]> {
 	}
 
 	@Override
-	public byte[] fromConst(BigInteger value, int size) {
-		return Utils.bigIntegerToBytes(value, size, isBigEndian);
+	public byte[] fromConst(BigInteger value, int size, boolean isContextreg) {
+		return Utils.bigIntegerToBytes(value, size, isBigEndian || isContextreg);
 	}
 
 	@Override
@@ -90,7 +117,12 @@ public enum BytesPcodeArithmetic implements PcodeArithmetic<byte[]> {
 	}
 
 	@Override
-	public BigInteger toConcrete(byte[] value) {
-		return Utils.bytesToBigInteger(value, value.length, isBigEndian, false);
+	public BigInteger toConcrete(byte[] value, boolean isContextreg) {
+		return Utils.bytesToBigInteger(value, value.length, isBigEndian || isContextreg, false);
+	}
+
+	@Override
+	public byte[] sizeOf(byte[] value) {
+		return fromConst(value.length, SIZEOF_SIZEOF);
 	}
 }

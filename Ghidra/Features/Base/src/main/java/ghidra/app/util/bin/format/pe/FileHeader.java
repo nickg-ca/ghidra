@@ -20,8 +20,8 @@ import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.List;
 
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.app.util.bin.format.pe.ImageRuntimeFunctionEntries._IMAGE_RUNTIME_FUNCTION_ENTRY;
 import ghidra.app.util.bin.format.pe.debug.DebugCOFFSymbol;
 import ghidra.app.util.bin.format.pe.debug.DebugCOFFSymbolAux;
@@ -182,25 +182,11 @@ public class FileHeader implements StructConverter {
 	// TODO: This is x86-64 architecture-specific and needs to be generalized.
 	private List<_IMAGE_RUNTIME_FUNCTION_ENTRY> irfes = new ArrayList<>();
 
-	private FactoryBundledWithBinaryReader reader;
+	private BinaryReader reader;
 	private int startIndex;
 	private NTHeader ntHeader;
 
-	static FileHeader createFileHeader(FactoryBundledWithBinaryReader reader, int startIndex,
-			NTHeader ntHeader) throws IOException {
-		FileHeader fileHeader = (FileHeader) reader.getFactory().create(FileHeader.class);
-		fileHeader.initFileHeader(reader, startIndex, ntHeader);
-		return fileHeader;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public FileHeader() {
-	}
-
-	private void initFileHeader(FactoryBundledWithBinaryReader reader, int startIndex,
-			NTHeader ntHeader) throws IOException {
+	FileHeader(BinaryReader reader, int startIndex, NTHeader ntHeader) throws IOException {
 		this.reader = reader;
 		this.startIndex = startIndex;
 		this.ntHeader = ntHeader;
@@ -356,9 +342,11 @@ public class FileHeader implements StructConverter {
 			Msg.error(this, "File alignment == 0: section processing skipped");
 		}
 		else {
+			long stringTableOffset = getStringTableOffset();
 			sectionHeaders = new SectionHeader[numberOfSections];
 			for (int i = 0; i < numberOfSections; ++i) {
-				sectionHeaders[i] = SectionHeader.createSectionHeader(reader, tmpIndex);
+				sectionHeaders[i] =
+					SectionHeader.readSectionHeader(reader, tmpIndex, stringTableOffset);
 
 				// Ensure PointerToRawData + SizeOfRawData doesn't exceed the length of the file
 				int pointerToRawData = sectionHeaders[i].getPointerToRawData();
@@ -411,11 +399,11 @@ public class FileHeader implements StructConverter {
 
 		long oldIndex = reader.getPointerIndex();
 
-		int start = irfeHeader.getPointerToRawData();
+		int start = ntHeader.rvaToPointer(irfeHeader.getVirtualAddress());
 		reader.setPointerIndex(start);
 
 		ImageRuntimeFunctionEntries entries =
-			ImageRuntimeFunctionEntries.createImageRuntimeFunctionEntries(reader, start, ntHeader);
+			new ImageRuntimeFunctionEntries(reader, start, ntHeader);
 		irfes = entries.getRuntimeFunctionEntries();
 
 		reader.setPointerIndex(oldIndex);
@@ -428,40 +416,55 @@ public class FileHeader implements StructConverter {
 
 		long oldIndex = reader.getPointerIndex();
 
-		int tmpIndex = getPointerToSymbolTable();
-		if (!ntHeader.checkRVA(tmpIndex)) {
-			Msg.error(this, "Invalid file index " + Integer.toHexString(tmpIndex));
+		int symbolTableOffset = getPointerToSymbolTable();
+		if (symbolTableOffset == 0) {
+			return;
+		}
+		if (numberOfSymbols < 0) {
+			Msg.error(this, "Invalid symbol count: " + Integer.toHexString(numberOfSymbols));
 			return;
 		}
 
-		if (numberOfSymbols < 0 || numberOfSymbols > reader.length()) {
-			Msg.error(this, "Invalid symbol count " + Integer.toHexString(numberOfSymbols));
-			return;
-		}
-
-		int stringTableIndex = tmpIndex + DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL * numberOfSymbols;
+		long stringTableOffset = getStringTableOffset();
 
 		for (int i = 0; i < numberOfSymbols; ++i) {
-			if (!ntHeader.checkRVA(tmpIndex)) {
-				Msg.error(this, "Invalid file index " + Integer.toHexString(tmpIndex));
+			if (symbolTableOffset < 0 || symbolTableOffset >= reader.length()) {
+				Msg.error(this,
+					"Invalid symbol table file index: " + Integer.toHexString(symbolTableOffset));
 				break;
 			}
 
 			DebugCOFFSymbol symbol =
-				DebugCOFFSymbol.createDebugCOFFSymbol(reader, tmpIndex, stringTableIndex);
-
-			tmpIndex += DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL;
-
-			tmpIndex +=
-				(DebugCOFFSymbolAux.IMAGE_SIZEOF_AUX_SYMBOL * symbol.getNumberOfAuxSymbols());
+				new DebugCOFFSymbol(reader, symbolTableOffset, stringTableOffset);
 
 			int numberOfAuxSymbols = symbol.getNumberOfAuxSymbols();
+
+			symbolTableOffset += DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL;
+			symbolTableOffset += DebugCOFFSymbolAux.IMAGE_SIZEOF_AUX_SYMBOL * numberOfAuxSymbols;
+
 			i += numberOfAuxSymbols > 0 ? numberOfAuxSymbols : 0;
 
 			symbols.add(symbol);
 		}
 
 		reader.setPointerIndex(oldIndex);
+	}
+
+	/**
+	 * Return the offset of the string table, or -1 if invalid or not present.
+	 * 
+	 * @return long offset of string table, or -1 if invalid or not present
+	 * @throws IOException if io error
+	 */
+	long getStringTableOffset() throws IOException {
+		if (pointerToSymbolTable <= 0 || numberOfSymbols < 0) {
+			return -1;
+		}
+		if (pointerToSymbolTable + (numberOfSymbols * DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL) > reader
+				.length()) {
+			return -1;
+		}
+		return pointerToSymbolTable + (DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL * numberOfSymbols);
 	}
 
 	public boolean isLordPE() {

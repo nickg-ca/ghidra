@@ -15,8 +15,7 @@
  */
 package ghidra.framework.data;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.*;
 
 import javax.swing.Icon;
@@ -56,7 +55,7 @@ public class GhidraFile implements DomainFile {
 		return fileManager.getUserFileSystem();
 	}
 
-	private GhidraFileData getFileData() throws IOException {
+	private GhidraFileData getFileData() throws FileNotFoundException, IOException {
 		return parent.getFileData(name);
 	}
 
@@ -512,7 +511,7 @@ public class GhidraFile implements DomainFile {
 	public ArrayList<?> getConsumers() {
 		DomainObjectAdapter dobj = fileManager.getOpenedDomainObject(getPathname());
 		if (dobj == null) {
-			return new ArrayList<Object>();
+			return new ArrayList<>();
 		}
 		return dobj.getConsumerList();
 	}
@@ -554,7 +553,7 @@ public class GhidraFile implements DomainFile {
 		catch (IOException e) {
 			fileError(e);
 		}
-		return new HashMap<String, String>();
+		return new HashMap<>();
 	}
 
 	void fileChanged() {

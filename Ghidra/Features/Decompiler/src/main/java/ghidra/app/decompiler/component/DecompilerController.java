@@ -65,6 +65,7 @@ public class DecompilerController {
 //==================================================================================================
 //  Methods call by the provider
 //==================================================================================================
+
 	/**
 	 * Called by the provider when the provider is disposed.  Once dispose is called, it should
 	 * never be used again.
@@ -306,6 +307,12 @@ public class DecompilerController {
 			               .maximumSize(cacheSize)
 			               .build();
 		//@formatter:on
+	}
+
+	// for testing
+	void setCache(Cache<Function, DecompileResults> cache) {
+		this.decompilerCache.invalidateAll();
+		this.decompilerCache = cache;
 	}
 
 	public void clearCache() {

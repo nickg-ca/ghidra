@@ -27,11 +27,14 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Objects;
+import java.util.List;
 
 import com.google.common.collect.Range;
 
 import db.DBHandle;
+import ghidra.app.plugin.processors.sleigh.SleighLanguage;
+import ghidra.pcode.exec.*;
+import ghidra.pcode.exec.trace.TraceSleighUtils;
 import ghidra.program.disassemble.Disassembler;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataType;
@@ -43,13 +46,14 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.program.util.DefaultLanguageService;
 import ghidra.trace.database.bookmark.*;
-import ghidra.trace.database.language.DBTraceGuestLanguage;
 import ghidra.trace.database.listing.*;
 import ghidra.trace.database.memory.DBTraceMemoryManager;
 import ghidra.trace.database.symbol.DBTraceReference;
-import ghidra.trace.database.thread.DBTraceThread;
 import ghidra.trace.database.thread.DBTraceThreadManager;
-import ghidra.trace.model.language.TraceGuestLanguage;
+import ghidra.trace.model.*;
+import ghidra.trace.model.guest.TraceGuestPlatform;
+import ghidra.trace.model.guest.TracePlatform;
+import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.Msg;
 import ghidra.util.database.DBOpenMode;
 import ghidra.util.database.UndoableTransaction;
@@ -59,6 +63,7 @@ import ghidra.util.task.ConsoleTaskMonitor;
 public class ToyDBTraceBuilder implements AutoCloseable {
 	public final Language language;
 	public final DBTrace trace;
+	public final TracePlatform host;
 	public final LanguageService languageService = DefaultLanguageService.getLanguageService();
 
 	public ToyDBTraceBuilder(File file)
@@ -66,44 +71,96 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 		DBHandle handle = new DBHandle(file);
 		this.trace = new DBTrace(handle, DBOpenMode.UPDATE, new ConsoleTaskMonitor(), this);
 		this.language = trace.getBaseLanguage();
+		this.host = trace.getPlatformManager().getHostPlatform();
 	}
 
 	// TODO: A constructor for specifying compiler, too
 	public ToyDBTraceBuilder(String name, String langID) throws IOException {
 		this.language = languageService.getLanguage(new LanguageID(langID));
 		this.trace = new DBTrace(name, language.getDefaultCompilerSpec(), this);
+		this.host = trace.getPlatformManager().getHostPlatform();
+	}
+
+	public ToyDBTraceBuilder(Trace trace) {
+		this.language = trace.getBaseLanguage();
+		this.trace = (DBTrace) trace;
+		this.host = trace.getPlatformManager().getHostPlatform();
+		trace.addConsumer(this);
+	}
+
+	public void exec(long snap, int frame, TraceThread thread, List<String> sleigh) {
+		PcodeProgram program = SleighProgramCompiler.compileProgram((SleighLanguage) language,
+			"builder", sleigh, PcodeUseropLibrary.nil());
+		TraceSleighUtils.buildByteExecutor(trace, snap, thread, frame)
+				.execute(program, PcodeUseropLibrary.nil());
+	}
+
+	public Address addr(AddressSpace space, long offset) {
+		return space.getAddress(offset);
+	}
+
+	public Address addr(Language lang, long offset) {
+		return addr(lang.getDefaultSpace(), offset);
 	}
 
 	public Address addr(long offset) {
-		return language.getDefaultSpace().getAddress(offset);
+		return addr(language, offset);
 	}
 
-	public Address data(long offset) {
-		return language.getDefaultDataSpace().getAddress(offset);
-	}
-
-	public Address addr(TraceGuestLanguage lang, long offset) {
+	public Address addr(TracePlatform lang, long offset) {
 		return lang.getLanguage().getDefaultSpace().getAddress(offset);
 	}
 
-	public Address data(TraceGuestLanguage lang, long offset) {
-		return lang.getLanguage().getDefaultDataSpace().getAddress(offset);
+	public Address data(Language lang, long offset) {
+		return addr(lang.getDefaultDataSpace(), offset);
+	}
+
+	public Address data(long offset) {
+		return data(language, offset);
+	}
+
+	public Address data(TraceGuestPlatform lang, long offset) {
+		return data(lang.getLanguage(), offset);
+	}
+
+	public AddressRange range(Address start, Address end) {
+		return new AddressRangeImpl(start, end);
+	}
+
+	public AddressRange range(AddressSpace space, long start, long end) {
+		return range(addr(space, start), addr(space, end));
+	}
+
+	public AddressRange range(Language lang, long start, long end) {
+		return range(lang.getDefaultSpace(), start, end);
 	}
 
 	public AddressRange range(long start, long end) {
-		return new AddressRangeImpl(addr(start), addr(end));
+		return range(language, start, end);
+	}
+
+	public AddressRange range(long singleton) {
+		return range(singleton, singleton);
+	}
+
+	public TraceAddressSnapRange srange(long snap, long start, long end) {
+		return new ImmutableTraceAddressSnapRange(addr(start), addr(end), snap, snap);
+	}
+
+	public AddressRange drng(Language lang, long start, long end) {
+		return range(language.getDefaultDataSpace(), start, end);
 	}
 
 	public AddressRange drng(long start, long end) {
-		return new AddressRangeImpl(data(start), data(end));
+		return drng(language, start, end);
 	}
 
-	public AddressRange range(TraceGuestLanguage lang, long start, long end) {
-		return new AddressRangeImpl(addr(lang, start), addr(lang, end));
+	public AddressRange range(TraceGuestPlatform lang, long start, long end) {
+		return range(lang.getLanguage(), start, end);
 	}
 
-	public AddressRange drng(TraceGuestLanguage lang, long start, long end) {
-		return new AddressRangeImpl(data(lang, start), data(lang, end));
+	public AddressRange drng(TraceGuestPlatform lang, long start, long end) {
+		return drng(lang.getLanguage(), start, end);
 	}
 
 	public AddressSetView set(AddressRange... ranges) {
@@ -163,7 +220,7 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 			String typeName, String category, String comment) throws DuplicateNameException {
 		Register register = language.getRegister(registerName);
 		assertNotNull(register);
-		DBTraceThread thread = getOrAddThread(threadName, snap);
+		TraceThread thread = getOrAddThread(threadName, snap);
 		DBTraceBookmarkType type = getOrAddBookmarkType(typeName);
 		DBTraceBookmarkManager manager = trace.getBookmarkManager();
 		DBTraceBookmarkRegisterSpace space = manager.getBookmarkRegisterSpace(thread, true);
@@ -194,49 +251,40 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 	}
 
 	public DBTraceInstruction addInstruction(long snap, Address start,
-			@SuppressWarnings("hiding") Language language) throws CodeUnitInsertionException {
-		DBTraceMemoryManager memory = trace.getMemoryManager();
+			TracePlatform platform) throws CodeUnitInsertionException {
 		DBTraceCodeManager code = trace.getCodeManager();
+		Language language = platform.getLanguage();
 		Disassembler dis = Disassembler.getDisassembler(language, language.getAddressFactory(),
 			new ConsoleTaskMonitor(), msg -> Msg.info(this, "Listener: " + msg));
 		RegisterValue defaultContextValue = trace.getRegisterContextManager()
 				.getDefaultContext(language)
 				.getDefaultDisassemblyContext();
 
-		MemBuffer memBuf;
-		if (language == null || Objects.equals(this.language, language)) {
-			memBuf = memory.getBufferAt(snap, start);
-		}
-		else {
-			DBTraceGuestLanguage guest = trace.getLanguageManager().getGuestLanguage(language);
-			memBuf = guest.getMappedMemBuffer(snap, guest.mapHostToGuest(start));
-		}
+		MemBuffer memBuf = platform.getMappedMemBuffer(snap, platform.mapHostToGuest(start));
 		InstructionBlock block = dis.pseudoDisassembleBlock(memBuf, defaultContextValue, 1);
 		Instruction pseudoIns = block.iterator().next();
 		return code.instructions()
-				.create(Range.atLeast(snap), start, pseudoIns.getPrototype(),
-					pseudoIns);
+				.create(Range.atLeast(snap), start, platform, pseudoIns.getPrototype(), pseudoIns);
 	}
 
-	public DBTraceInstruction addInstruction(long snap, Address start,
-			@SuppressWarnings("hiding") Language language, ByteBuffer buf)
-			throws CodeUnitInsertionException {
+	public DBTraceInstruction addInstruction(long snap, Address start, TracePlatform platform,
+			ByteBuffer buf) throws CodeUnitInsertionException {
 		int length = buf.remaining();
 		DBTraceMemoryManager memory = trace.getMemoryManager();
 		memory.putBytes(snap, start, buf);
-		DBTraceInstruction instruction = addInstruction(snap, start, language);
+		DBTraceInstruction instruction = addInstruction(snap, start, platform);
 		assertEquals(length, instruction.getLength());
 		return instruction;
 	}
 
-	public DBTraceThread getOrAddThread(String name, long creationSnap)
+	public TraceThread getOrAddThread(String name, long creationSnap)
 			throws DuplicateNameException {
 		DBTraceThreadManager manager = trace.getThreadManager();
-		Collection<? extends DBTraceThread> threads = manager.getThreadsByPath(name);
+		Collection<? extends TraceThread> threads = manager.getThreadsByPath(name);
 		if (threads != null && !threads.isEmpty()) {
 			return threads.iterator().next();
 		}
-		return (DBTraceThread) manager.createThread(name, creationSnap);
+		return manager.createThread(name, creationSnap);
 	}
 
 	public DBTraceReference addMemoryReference(long creationSnap, Address from, Address to) {
@@ -251,9 +299,9 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 	}
 
 	public DBTraceReference addOffsetReference(long creationSnap, Address from, Address to,
-			long offset) {
+			boolean toAddrIsBase, long offset) {
 		return trace.getReferenceManager()
-				.addOffsetReference(Range.atLeast(creationSnap), from, to,
+				.addOffsetReference(Range.atLeast(creationSnap), from, to, toAddrIsBase,
 					offset, RefType.DATA, SourceType.DEFAULT, -1);
 	}
 
@@ -285,10 +333,17 @@ public class ToyDBTraceBuilder implements AutoCloseable {
 
 	@Override
 	public void close() {
-		trace.release(this);
+		if (trace.getConsumerList().contains(this)) {
+			trace.release(this);
+		}
 	}
 
 	public Language getLanguage(String id) throws LanguageNotFoundException {
 		return languageService.getLanguage(new LanguageID(id));
+	}
+
+	public CompilerSpec getCompiler(String langID, String compID)
+			throws CompilerSpecNotFoundException, LanguageNotFoundException {
+		return getLanguage(langID).getCompilerSpecByID(new CompilerSpecID(compID));
 	}
 }

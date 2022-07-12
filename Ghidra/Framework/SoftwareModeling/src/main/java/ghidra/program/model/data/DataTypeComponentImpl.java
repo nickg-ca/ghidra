@@ -33,12 +33,11 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 	private CompositeDataTypeImpl parent; // parent prototype containing us
 	private int offset; // offset in parent
 	private int ordinal; // position in parent
-	private Settings settings;
+	private SettingsImpl defaultSettings;
 
 	private String fieldName; // name of this prototype in the component
 	private String comment; // comment about this component.
 	private int length; // my length
-	private boolean isFlexibleArrayComponent = false;
 
 	/**
 	 * Create a new DataTypeComponent
@@ -60,16 +59,6 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 		this.fieldName = fieldName;
 		this.comment = comment;
 		setDataType(dataType);
-		initFlexibleArrayComponent();
-	}
-
-	private void initFlexibleArrayComponent() {
-		if (dataType instanceof BitFieldDataType || dataType instanceof Dynamic ||
-			dataType instanceof FactoryDataType) {
-			return;
-		}
-		isFlexibleArrayComponent =
-			length == 0 && offset < 0 && ordinal < 0 && (parent instanceof Structure);
 	}
 
 	/**
@@ -83,11 +72,6 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 	public DataTypeComponentImpl(DataType dataType, CompositeDataTypeImpl parent, int length,
 			int ordinal, int offset) {
 		this(dataType, parent, length, ordinal, offset, null, null);
-	}
-
-	@Override
-	public boolean isFlexibleArrayComponent() {
-		return isFlexibleArrayComponent;
 	}
 
 	@Override
@@ -106,25 +90,21 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public int getOffset() {
-		if (isFlexibleArrayComponent) {
-			if (parent.isZeroLength()) {
-				// some structures have only a flexible array defined
-				return 0;
-			}
-			return parent.getLength();
-		}
 		return offset;
 	}
 
 	boolean containsOffset(int off) {
-		if (isFlexibleArrayComponent) {
-			return false;
+		if (off == offset) { // separate check required to handle zero-length case
+			return true;
 		}
-		return off >= offset && off <= (offset + length - 1);
+		return off > offset && off < (offset + length);
 	}
 
 	@Override
 	public int getEndOffset() {
+		if (length == 0) { // separate check required to handle zero-length case
+			return offset;
+		}
 		return offset + length - 1;
 	}
 
@@ -144,17 +124,6 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 			return "";
 		}
 		return fieldName;
-	}
-
-	@Override
-	public String getDefaultFieldName() {
-		if (isZeroBitFieldComponent()) {
-			return "";
-		}
-		if (parent instanceof Structure) {
-			return DEFAULT_FIELD_NAME_PREFIX + "_0x" + Integer.toHexString(getOffset());
-		}
-		return DEFAULT_FIELD_NAME_PREFIX + getOrdinal();
 	}
 
 	@Override
@@ -244,16 +213,13 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public int getOrdinal() {
-		if (isFlexibleArrayComponent) {
-			return parent.getNumComponents();
-		}
 		return ordinal;
 	}
 
 	/**
 	 * Set the component ordinal of this component within its parent
 	 * data type.
-	 * @param ordinal
+	 * @param ordinal component ordinal
 	 */
 	void setOrdinal(int ordinal) {
 		this.ordinal = ordinal;
@@ -261,15 +227,18 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public Settings getDefaultSettings() {
-		if (settings == null) {
-			settings = new SettingsImpl();
+		if (defaultSettings == null) {
+			DataTypeManager dataMgr = parent.getDataTypeManager();
+			boolean immutableSettings =
+				dataMgr == null || !dataMgr.allowsDefaultComponentSettings();
+			defaultSettings = new SettingsImpl(immutableSettings);
+			defaultSettings.setDefaultSettings(getDataType().getDefaultSettings());
 		}
-		return settings;
+		return defaultSettings;
 	}
 
-	@Override
-	public void setDefaultSettings(Settings settings) {
-		this.settings = settings;
+	void invalidateSettings() {
+		defaultSettings = null;
 	}
 
 	@Override
@@ -287,10 +256,8 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 		DataType myDt = getDataType();
 		DataType otherDt = dtc.getDataType();
 
-		// NOTE: use getOffset() and getOrdinal() methods since returned values will differ from
-		// stored values for flexible array component
-		if (getOffset() != dtc.getOffset() || getLength() != dtc.getLength() ||
-			getOrdinal() != dtc.getOrdinal() ||
+		if (offset != dtc.getOffset() || getLength() != dtc.getLength() ||
+			ordinal != dtc.getOrdinal() ||
 			!SystemUtilities.isEqual(getFieldName(), dtc.getFieldName()) ||
 			!SystemUtilities.isEqual(getComment(), dtc.getComment())) {
 			return false;
@@ -330,9 +297,7 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 		boolean aligned =
 			(myParent instanceof Composite) ? ((Composite) myParent).isPackingEnabled() : false;
 		// Components don't need to have matching offset when they are aligned
-		// NOTE: use getOffset() method since returned values will differ from
-		// stored values for flexible array component
-		if ((!aligned && (getOffset() != dtc.getOffset())) ||
+		if ((!aligned && (offset != dtc.getOffset())) ||
 			!SystemUtilities.isEqual(getFieldName(), dtc.getFieldName()) ||
 			!SystemUtilities.isEqual(getComment(), dtc.getComment())) {
 			return false;
@@ -348,29 +313,21 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public void setDataType(DataType dt) {
+		// intended for internal use only - note exsiting settings should be preserved
 		dataType = dt;
-		if (dt instanceof BitFieldDataType) {
-			// bit-field packing may change component size
-			setLength(dt.getLength());
-		}
+	}
+
+	/**
+	 * Determine if component is an undefined filler component
+	 * @return true if undefined filler component, else false
+	 */
+	boolean isUndefined() {
+		return dataType == DataType.DEFAULT;
 	}
 
 	@Override
 	public String toString() {
-		StringBuffer buffer = new StringBuffer();
-		buffer.append("  " + ordinal);
-		buffer.append("  " + offset);
-		buffer.append("  " + dataType.getName());
-		if (isFlexibleArrayComponent) {
-			buffer.append("[ ]");
-		}
-		else if (dataType instanceof BitFieldDataType) {
-			buffer.append("(" + ((BitFieldDataType) dataType).getBitOffset() + ")");
-		}
-		buffer.append("  " + length);
-		buffer.append("  " + fieldName);
-		buffer.append("  " + ((comment != null) ? ("\"" + comment + "\"") : comment));
-		return buffer.toString();
+		return InternalDataTypeComponent.toString(this);
 	}
 
 }

@@ -30,7 +30,6 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.*;
-import ghidra.program.util.ChangeManager;
 import ghidra.util.*;
 import ghidra.util.exception.*;
 import ghidra.util.prop.PropertyVisitor;
@@ -57,7 +56,6 @@ abstract class CodeUnitDB extends DatabaseObject implements CodeUnit, ProcessorC
 	private boolean checkedComments;
 	protected byte[] bytes;
 	private ProgramContext programContext;
-	protected ChangeManager changeMgr;
 	protected Lock lock;
 
 	/**
@@ -80,7 +78,6 @@ abstract class CodeUnitDB extends DatabaseObject implements CodeUnit, ProcessorC
 		program = (ProgramDB) codeMgr.getProgram();
 		refMgr = program.getReferenceManager();
 		programContext = program.getProgramContext();
-		changeMgr = program;
 	}
 
 	@Override
@@ -284,7 +281,7 @@ abstract class CodeUnitDB extends DatabaseObject implements CodeUnit, ProcessorC
 	public Address getMaxAddress() {
 		refreshIfNeeded();
 		if (endAddr == null) {
-			endAddr = address.add(length - 1);
+			endAddr = getLength() == 0 ? address : address.add(getLength() - 1);
 		}
 		return endAddr;
 	}
@@ -669,9 +666,10 @@ abstract class CodeUnitDB extends DatabaseObject implements CodeUnit, ProcessorC
 		try {
 			checkIsValid();
 			populateByteArray();
-			byte[] b = new byte[length];
-			if (bytes.length < length) {
-				if (program.getMemory().getBytes(address, b) != length) {
+			int len = getLength();
+			byte[] b = new byte[len];
+			if (bytes.length < len) {
+				if (program.getMemory().getBytes(address, b) != len) {
 					throw new MemoryAccessException("Couldn't get all bytes for CodeUnit");
 				}
 			}
@@ -829,7 +827,7 @@ abstract class CodeUnitDB extends DatabaseObject implements CodeUnit, ProcessorC
 	}
 
 	protected int getPreferredCacheLength() {
-		return length;
+		return getLength();
 	}
 
 	private void validateOpIndex(int opIndex) {

@@ -35,7 +35,7 @@
 // this script and default vfunctions named by this script are likely to change in the future 
 // once an official design for Object Oriented representation is determined.  
 // NOTE: Windows class recovery is more complete and tested than gcc class recovery, which is still 
-// in early stages of development. Gcc class data types are only recovered for classes without multiple or
+// in early stages of development. Gcc class data types are only recovered for classes without 
 // virtual inheritance but if the program contains DWARF, there will be some amount of data recovered 
 // by the DWARF analyzer.
 // NOTE: For likely the best results, run this script on freshly analyzed programs. No testing has been 
@@ -63,8 +63,13 @@ import ghidra.app.plugin.core.analysis.DecompilerFunctionAnalyzer;
 import ghidra.app.script.GhidraScript;
 import ghidra.app.services.Analyzer;
 import ghidra.app.services.GraphDisplayBroker;
+import ghidra.app.util.bin.format.dwarf4.next.DWARFFunctionImporter;
+import ghidra.app.util.bin.format.dwarf4.next.DWARFProgram;
+import ghidra.app.util.bin.format.dwarf4.next.sectionprovider.DWARFSectionProvider;
+import ghidra.app.util.bin.format.dwarf4.next.sectionprovider.DWARFSectionProviderFactory;
 import ghidra.app.util.bin.format.pdb.PdbParserConstants;
 import ghidra.app.util.importer.MessageLog;
+import ghidra.app.util.opinion.ElfLoader;
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.*;
@@ -72,6 +77,7 @@ import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.service.graph.*;
+import ghidra.util.WebColors;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.GraphException;
 import ghidra.util.task.TaskMonitor;
@@ -115,6 +121,11 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 	// edge between child and parent is orange if child inherits the parent virtually
 	// edge between child and parent is lime green if child inherits the parent non-virtually
 	private static final boolean GRAPH_CLASS_HIERARCHIES = false;
+	private static final String NO_INHERITANCE = "No Inheritance";
+	private static final String SINGLE_INHERITANCE = "Single Inheritance";
+	private static final String MULTIPLE_INHERITANCE = "Multiple Inheritance";
+	private static final String VIRTUAL_INHERITANCE = "Virtual Inheritance";
+	private static final String NON_VIRTUAL_INHERITANCE = "Non-virtual Inheritance";
 
 	// show shortened class template names in class structure field names
 	private static final boolean USE_SHORT_TEMPLATE_NAMES_IN_STRUCTURE_FIELDS = true;
@@ -127,7 +138,7 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 	private static final String INDETERMINATE_BOOKMARK = "INDETERMINATE";
 
 	boolean programHasRTTIApplied = false;
-	boolean isPDBLoaded;
+	boolean hasDebugSymbols;
 	boolean isGcc = false;
 	boolean isWindows = false;
 	String ghidraVersion = null;
@@ -138,8 +149,6 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 	int defaultPointerSize;
 
 	RTTIClassRecoverer recoverClassesFromRTTI;
-
-	ExtraScriptUtils extraUtils;
 
 	boolean nameVfunctions = false;
 
@@ -152,14 +161,14 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 			return;
 		}
 
-
 		if (isWindows()) {
 
-			isPDBLoaded = isPDBLoadedInProgram();
-			nameVfunctions = !isPDBLoaded;
-			recoverClassesFromRTTI = new RTTIWindowsClassRecoverer(currentProgram,
-				currentLocation, state.getTool(), this, BOOKMARK_FOUND_FUNCTIONS,
-				USE_SHORT_TEMPLATE_NAMES_IN_STRUCTURE_FIELDS, nameVfunctions, isPDBLoaded, monitor);
+			hasDebugSymbols = isPDBLoadedInProgram();
+			nameVfunctions = !hasDebugSymbols;
+			recoverClassesFromRTTI =
+				new RTTIWindowsClassRecoverer(currentProgram, currentLocation, state.getTool(),
+					this, BOOKMARK_FOUND_FUNCTIONS, USE_SHORT_TEMPLATE_NAMES_IN_STRUCTURE_FIELDS,
+					nameVfunctions, hasDebugSymbols, monitor);
 		}
 		else if (isGcc()) {
 
@@ -168,10 +177,21 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 			if (!runGcc) {
 				return;
 			}
-			nameVfunctions = true;
-			recoverClassesFromRTTI = new RTTIGccClassRecoverer(currentProgram, currentLocation,
-				state.getTool(), this, BOOKMARK_FOUND_FUNCTIONS,
-				USE_SHORT_TEMPLATE_NAMES_IN_STRUCTURE_FIELDS, nameVfunctions, monitor);
+
+			//run fixup old elf relocations script
+			runScript("FixElfExternalOffsetDataRelocationScript.java");
+
+			hasDebugSymbols = isDwarfLoadedInProgram();
+			if (hasDwarf() && !hasDebugSymbols) {
+				println(
+					"The program contains DWARF but the DWARF analyzer has not been run. Please run the DWARF analyzer to get best results from this script.");
+				return;
+			}
+			nameVfunctions = !hasDebugSymbols;
+			recoverClassesFromRTTI =
+				new RTTIGccClassRecoverer(currentProgram, currentLocation, state.getTool(), this,
+					BOOKMARK_FOUND_FUNCTIONS, USE_SHORT_TEMPLATE_NAMES_IN_STRUCTURE_FIELDS,
+					nameVfunctions, hasDebugSymbols, monitor);
 		}
 		else {
 			println("This script will not work on this program type");
@@ -215,6 +235,9 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 			out = new PrintWriter(outputFile);
 		}
 
+		currentProgram.setPreferredRootNamespaceCategoryPath(
+			"/" + RecoveredClassHelper.DTM_CLASS_DATA_FOLDER_NAME);
+
 		if (FIXUP_PROGRAM) {
 			println(
 				"Checking for missing RTTI information and undefined constructor/destructor functions and creating if possible " +
@@ -244,8 +267,7 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 			getNumberOfConstructorsOrDestructors(recoveredClasses) +
 			" class member functions to assign.");
 
-
-		if (!isPDBLoaded) {
+		if (!hasDebugSymbols) {
 
 			if (BOOKMARK_FOUND_FUNCTIONS) {
 				bookmarkFunctions(recoveredClasses);
@@ -264,8 +286,21 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 			showGraph(graph);
 		}
 
-
 		decompilerUtils.disposeDecompilerInterface();
+
+	}
+
+	private boolean hasDwarf() {
+		if (DWARFProgram.isDWARF(currentProgram)) {
+			DWARFSectionProvider dsp =
+				DWARFSectionProviderFactory.createSectionProviderFor(currentProgram, monitor);
+			if (dsp == null) {
+				return false;
+			}
+			dsp.close();
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -277,10 +312,24 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 		return options.getBoolean(PdbParserConstants.PDB_LOADED, false);
 	}
 
+	private boolean isDwarfLoadedInProgram() {
+
+		Options options = currentProgram.getOptions(Program.PROGRAM_INFO);
+
+		return (DWARFFunctionImporter.hasDWARFProgModule(currentProgram,
+			DWARFProgram.DWARF_ROOT_NAME) || options.getBoolean("DWARF Loaded", false));
+	}
+
 	public String validate() {
 
 		if (currentProgram == null) {
 			return ("There is no open program");
+		}
+
+		CategoryPath path =
+			new CategoryPath(CategoryPath.ROOT, RecoveredClassHelper.DTM_CLASS_DATA_FOLDER_NAME);
+		if (currentProgram.getDataTypeManager().containsCategory(path)) {
+			return ("This script has already been run on this program");
 		}
 
 		if (!checkGhidraVersion()) {
@@ -334,7 +383,15 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 	private AttributedGraph createGraph(List<RecoveredClass> recoveredClasses)
 			throws CancelledException {
 
-		AttributedGraph g = new AttributedGraph();
+		GraphType graphType =
+			new GraphTypeBuilder("Class Hierarchy Graph").vertexType(NO_INHERITANCE)
+					.vertexType(SINGLE_INHERITANCE)
+					.vertexType(MULTIPLE_INHERITANCE)
+					.edgeType(NON_VIRTUAL_INHERITANCE)
+					.edgeType(VIRTUAL_INHERITANCE)
+					.build();
+
+		AttributedGraph g = new AttributedGraph("Recovered Classes Graph", graphType);
 
 		Iterator<RecoveredClass> recoveredClassIterator = recoveredClasses.iterator();
 		while (recoveredClassIterator.hasNext()) {
@@ -350,7 +407,7 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 
 			// no parent = blue vertex
 			if (classHierarchyMap.isEmpty()) {
-				classVertex.setAttribute("Color", "Blue");
+				classVertex.setVertexType(NO_INHERITANCE);
 				classVertex.setDescription(recoveredClass.getClassPath().getPath());
 				continue;
 			}
@@ -359,11 +416,11 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 
 			// single parent = green vertex
 			if (parents.size() == 1) {
-				classVertex.setAttribute("Color", "Green");
+				classVertex.setVertexType(SINGLE_INHERITANCE);
 			}
 			// multiple parents = red vertex
 			else {
-				classVertex.setAttribute("Color", "Red");
+				classVertex.setVertexType(MULTIPLE_INHERITANCE);
 			}
 
 			classVertex.setDescription(recoveredClass.getClassPath().getPath());
@@ -390,9 +447,12 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 
 				// edge between child and parent is orange if child inherits the parent virtually
 				if (isVirtualParent) {
-					edge.setAttribute("Color", "Orange");
+					edge.setEdgeType(VIRTUAL_INHERITANCE);
 				}
-				// else edge between child and parent is lime green if child inherits the parent non-virtually
+				else {
+					edge.setEdgeType(NON_VIRTUAL_INHERITANCE);
+				}
+
 
 			}
 		}
@@ -413,7 +473,20 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 		GraphDisplayBroker broker = tool.getService(GraphDisplayBroker.class);
 		GraphDisplayProvider service = broker.getGraphDisplayProvider("Default Graph Display");
 		display = service.getGraphDisplay(false, TaskMonitor.DUMMY);
-		display.setGraph(graph, "test graph", false, TaskMonitor.DUMMY);
+
+		GraphDisplayOptions graphOptions = new GraphDisplayOptionsBuilder(graph.getGraphType())
+				.vertex(NO_INHERITANCE, VertexShape.RECTANGLE, WebColors.BLUE)
+				.vertex(SINGLE_INHERITANCE, VertexShape.RECTANGLE, WebColors.GREEN)
+				.vertex(MULTIPLE_INHERITANCE, VertexShape.RECTANGLE, WebColors.RED)
+				.edge(NON_VIRTUAL_INHERITANCE, WebColors.LIME_GREEN)
+				.edge(VIRTUAL_INHERITANCE, WebColors.ORANGE)
+				.defaultVertexColor(WebColors.PURPLE)
+				.defaultEdgeColor(WebColors.PURPLE)
+				.defaultLayoutAlgorithm("Compact Hierarchical")
+				.build();
+
+		display.setGraph(graph, graphOptions,
+			"Recovered Classes Graph", false, TaskMonitor.DUMMY);
 	}
 
 	/**
@@ -454,8 +527,8 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 
 
 	/**
-	 * Script only works on versions of ghidra after 9.2, but not 9.2.1 because a method was
-	 * accidentally removed from FillOutStructureCmd that is needed
+	 * Script works on versions of ghidra including and after 9.2 except for 9.2.1 because a method 
+	 * was accidentally removed from FillOutStructureCmd that is needed
 	 * @return true if script will work and false otherwise
 	 */
 	private boolean checkGhidraVersion() {
@@ -473,8 +546,7 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 	 */
 	private boolean isGcc() {
 
-		boolean isELF = currentProgram.getExecutableFormat().contains("ELF");
-		if (!isELF) {
+		if (!ElfLoader.ELF_NAME.equals(currentProgram.getExecutableFormat())) {
 			return false;
 		}
 
@@ -490,10 +562,9 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 			return false;
 		}
 
-		if (!commentBlock.isLoaded()) {
+		if (!commentBlock.isInitialized()) {
 			return false;
 		}
-
 
 		// check memory bytes in block for GCC: bytes
 		byte[] gccBytes = { (byte) 0x47, (byte) 0x43, (byte) 0x43, (byte) 0x3a };
@@ -571,9 +642,7 @@ public class RecoverClassesFromRTTIScript extends GhidraScript {
 	private String getVersionOfGhidra() {
 
 		Options options = currentProgram.getOptions("Program Information");
-		Object ghidraVersionObject = options.getObject("Created With Ghidra Version", null);
-
-		return ghidraVersionObject.toString();
+		return options.getString("Created With Ghidra Version", null);
 	}
 
 

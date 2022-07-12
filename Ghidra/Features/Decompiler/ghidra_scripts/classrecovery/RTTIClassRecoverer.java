@@ -13,23 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package classrecovery;
-/* ###
- * IP: GHIDRA
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 //DO NOT RUN. THIS IS NOT A SCRIPT! THIS IS A CLASS THAT IS USED BY SCRIPTS. 
+package classrecovery;
+
 import java.util.*;
 
 import ghidra.app.util.NamespaceUtils;
@@ -45,18 +31,19 @@ import ghidra.util.Msg;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
-public class RTTIClassRecoverer extends RecoveredClassUtils {
+public class RTTIClassRecoverer extends RecoveredClassHelper {
 
 	boolean programHasRTTIApplied = false;
 
 	String ghidraVersion;
 	Program program;
 	TaskMonitor monitor;
+	boolean hasDebugSymbols;
+
 
 	RTTIClassRecoverer(Program program, ProgramLocation location, PluginTool tool,
 			FlatProgramAPI api, boolean createBookmarks, boolean useShortTemplates,
-			boolean nameVfunctions,
-			TaskMonitor monitor) {
+			boolean nameVfunctions, boolean hasDebugSymbols, TaskMonitor monitor) throws Exception {
 
 		super(program, location, tool, api, createBookmarks, useShortTemplates, nameVfunctions,
 			monitor);
@@ -69,6 +56,7 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 		this.createBookmarks = createBookmarks;
 		this.useShortTemplates = useShortTemplates;
 		this.nameVfunctions = nameVfunctions;
+		this.hasDebugSymbols = hasDebugSymbols;
 
 		ghidraVersion = getVersionOfGhidra();
 	}
@@ -86,7 +74,7 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 		return dataTypeManager;
 	}
 
-	public boolean containsRTTI() throws CancelledException {
+	public boolean containsRTTI() throws CancelledException, InvalidInputException {
 		return true;
 	}
 
@@ -109,19 +97,17 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 	public String getVersionOfGhidra() {
 
 		Options options = program.getOptions("Program Information");
-		Object ghidraVersionObject = options.getObject("Created With Ghidra Version", null);
-
-		return ghidraVersionObject.toString();
+		return options.getString("Created With Ghidra Version", null);
 	}
 
 
 
-	public void fixUpProgram() {
+	public void fixUpProgram() throws CancelledException, Exception {
 		return;
 	}
 
 
-	public List<RecoveredClass> createRecoveredClasses() {
+	public List<RecoveredClass> createRecoveredClasses() throws Exception {
 
 		return new ArrayList<RecoveredClass>();
 	}
@@ -133,10 +119,10 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 	 * Method to promote the namespace is a class namespace. 
 	 * @param namespace the namespace for the vftable
 	 * @return true if namespace is (now) a class namespace or false if it could not be promoted.
+	 * @throws InvalidInputException if namespace was contained in function and could not be promoted
 	 */
-	public Namespace promoteToClassNamespace(Namespace namespace) {
+	public Namespace promoteToClassNamespace(Namespace namespace) throws InvalidInputException {
 
-		try {
 			Namespace newClass = NamespaceUtils.convertNamespaceToClass(namespace);
 
 			SymbolType symbolType = newClass.getSymbol().getSymbolType();
@@ -146,13 +132,6 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 			Msg.debug(this,
 				"Could not promote " + namespace.getName() + " to a class namespace");
 			return null;
-		}
-		catch (InvalidInputException e) {
-
-			Msg.debug(this, "Could not promote " + namespace.getName() +
-				" to a class namespace because " + e.getMessage());
-			return null;
-		}
 	}
 
 
@@ -173,7 +152,7 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 			// if class is non-virtual have to search for an existing class datatype
 			if (!recoveredClass.hasVftable()) {
 				DataType[] possibleExistingClassStructures =
-					extraUtils.getDataTypes(recoveredClass.getName());
+					extendedFlatAPI.getDataTypes(recoveredClass.getName());
 				if (possibleExistingClassStructures.length == 0) {
 					continue;
 				}
@@ -233,7 +212,7 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 				Structure existingClassStructure =
 					(Structure) dataTypeManager.getDataType(dataTypePath, dataTypeName);
 
-				if (!existingClassStructure.isNotYetDefined()) {
+				if (existingClassStructure != null && !existingClassStructure.isNotYetDefined()) {
 					recoveredClass.addExistingClassStructure(existingClassStructure);
 					break;
 				}
@@ -277,7 +256,6 @@ public class RTTIClassRecoverer extends RecoveredClassUtils {
 			memberFunctionsToProcess.addAll(recoveredClass.getConstructorList());
 			memberFunctionsToProcess.addAll(recoveredClass.getDestructorList());
 			memberFunctionsToProcess.addAll(recoveredClass.getIndeterminateList());
-
 			memberFunctionsToProcess.addAll(recoveredClass.getInlinedConstructorList());
 
 			Iterator<Function> memberFunctionIterator = memberFunctionsToProcess.iterator();

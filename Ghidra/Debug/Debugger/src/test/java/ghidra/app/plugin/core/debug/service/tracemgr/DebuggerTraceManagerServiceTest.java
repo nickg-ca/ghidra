@@ -21,22 +21,23 @@ import java.util.Collection;
 import java.util.Set;
 
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+import generic.test.category.NightlyCategory;
 import ghidra.app.plugin.core.debug.DebuggerCoordinates;
 import ghidra.app.plugin.core.debug.gui.AbstractGhidraHeadedDebuggerGUITest;
+import ghidra.app.services.ActionSource;
 import ghidra.app.services.TraceRecorder;
 import ghidra.dbg.model.TestTargetStack;
 import ghidra.dbg.model.TestTargetStackFrameHasRegisterBank;
-import ghidra.dbg.testutil.DebuggerModelTestUtils;
 import ghidra.framework.model.DomainFile;
-import ghidra.trace.database.thread.DBTraceThread;
 import ghidra.trace.model.Trace;
 import ghidra.trace.model.stack.TraceStack;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.database.UndoableTransaction;
 
-public class DebuggerTraceManagerServiceTest extends AbstractGhidraHeadedDebuggerGUITest
-		implements DebuggerModelTestUtils {
+@Category(NightlyCategory.class) // this may actually be an @PortSensitive test
+public class DebuggerTraceManagerServiceTest extends AbstractGhidraHeadedDebuggerGUITest {
 
 	@Test
 	public void testGetOpenTraces() throws Exception {
@@ -113,7 +114,7 @@ public class DebuggerTraceManagerServiceTest extends AbstractGhidraHeadedDebugge
 
 		assertNull(traceManager.getCurrentThread());
 
-		DBTraceThread thread;
+		TraceThread thread;
 		try (UndoableTransaction tid = tb.startTransaction()) {
 			thread = tb.getOrAddThread("Thread 1", 0);
 		}
@@ -294,7 +295,7 @@ public class DebuggerTraceManagerServiceTest extends AbstractGhidraHeadedDebugge
 		mb.createTestProcessesAndThreads();
 
 		TraceRecorder recorder = modelService.recordTarget(mb.testProcess1,
-			new TestDebuggerTargetTraceMapper(mb.testProcess1));
+			createTargetTraceMapper(mb.testProcess1), ActionSource.AUTOMATIC);
 		Trace trace = recorder.getTrace();
 
 		traceManager.openTrace(trace);
@@ -328,19 +329,18 @@ public class DebuggerTraceManagerServiceTest extends AbstractGhidraHeadedDebugge
 	}
 
 	@Test
-	public void testSynchronizeFocusTraceToModel() throws Exception {
+	public void testSynchronizeFocusTraceToModel() throws Throwable {
 		assertTrue(traceManager.isSynchronizeFocus());
 
 		createTestModel();
 		mb.createTestProcessesAndThreads();
 
 		TraceRecorder recorder = modelService.recordTarget(mb.testProcess1,
-			new TestDebuggerTargetTraceMapper(mb.testProcess1));
+			createTargetTraceMapper(mb.testProcess1), ActionSource.AUTOMATIC);
 		Trace trace = recorder.getTrace();
 
 		waitForValue(() -> modelService.getTarget(trace));
-		// TODO: Fragile. This depends on the recorder advancing the snap for each thread
-		waitForPass(() -> assertEquals(2, trace.getTimeManager().getSnapshotCount()));
+		waitRecorder(recorder);
 
 		traceManager.openTrace(trace);
 		waitForSwing();
@@ -397,7 +397,7 @@ public class DebuggerTraceManagerServiceTest extends AbstractGhidraHeadedDebugge
 		mb.createTestProcessesAndThreads();
 
 		TraceRecorder recorder = modelService.recordTarget(mb.testProcess1,
-			new TestDebuggerTargetTraceMapper(mb.testProcess1));
+			createTargetTraceMapper(mb.testProcess1), ActionSource.AUTOMATIC);
 		Trace trace = recorder.getTrace();
 
 		traceManager.openTrace(trace);

@@ -15,8 +15,8 @@
  */
 package ghidra.app.plugin.exceptionhandlers.gcc;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 import ghidra.app.plugin.exceptionhandlers.gcc.datatype.SignedLeb128DataType;
 import ghidra.app.plugin.exceptionhandlers.gcc.datatype.UnsignedLeb128DataType;
@@ -33,73 +33,77 @@ import ghidra.program.model.scalar.Scalar;
  */
 public class DwarfDecoderFactory {
 
-	private static final Map<DwarfEHDataDecodeFormat, DwarfEHDecoder> decoderMap = new HashMap<>();
-	static {
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_absptr, new DW_EH_PE_absptr_Decoder());
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_uleb128, new DW_EH_PE_uleb128_Decoder());
-
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_udata2, new DW_EH_PE_udata2_Decoder());
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_udata4, new DW_EH_PE_udata4_Decoder());
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_udata8, new DW_EH_PE_udata8_Decoder());
-
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_signed, new DW_EH_PE_signed_Decoder());
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_sleb128, new DW_EH_PE_sleb128_Decoder());
-
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_sdata2, new DW_EH_PE_sdata2_Decoder());
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_sdata4, new DW_EH_PE_sdata4_Decoder());
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_sdata8, new DW_EH_PE_sdata8_Decoder());
-
-		decoderMap.put(DwarfEHDataDecodeFormat.DW_EH_PE_omit, new DW_EH_PE_omit_Decoder());
-	}
-
-	/** 
-	 * Get the appropriate decoder for the given decode format and application mode  
-	 * @param decodeFormat the exception handling data decoding format
-	 * @param appFormat the desired application mode
-	 * @param isIndirect flag indicating whether or not the data is an indirect reference
-	 * @return the decoder or null
-	 */
-	public static DwarfEHDecoder getDecoder(DwarfEHDataDecodeFormat decodeFormat,
-			DwarfEHDataApplicationMode appFormat, boolean isIndirect) {
-
-		DwarfEHDecoder decoder = decoderMap.get(decodeFormat);
-		if (decoder == null) {
-			return null;
-		}
-
-		decoder.setApplicationMode(appFormat);
-
-		decoder.setIndirect(isIndirect);
-
-		return decoder;
-	}
+	private static final ConcurrentHashMap<Integer, DwarfEHDecoder> decoderMap =
+		new ConcurrentHashMap<>();
 
 	/**
 	 * Get the appropriate decoder for the given 8-bit mode; mode is parsed into
 	 * decode format, application mode, and indirection flag.
-	 * @see #getDecoder(DwarfEHDataDecodeFormat, DwarfEHDataApplicationMode, boolean)
+	 * @see #createDecoder(DwarfEHDataDecodeFormat, DwarfEHDataApplicationMode, boolean)
 	 * @param mode a byte that indicates an encoding
 	 * @return the decoder for the indicated mode of encoding
 	 */
 	public static DwarfEHDecoder getDecoder(int mode) {
 
+		DwarfEHDecoder dwarfEHDecoder = decoderMap.get(mode);
+		if (dwarfEHDecoder != null) {
+			return dwarfEHDecoder;
+		}
+
 		int format = mode & 0x0F;
 		int appl = mode & 0x70;
 		boolean isIndirect = (mode & 0x80) == 0x80;
 
-		if ((mode & 0xFF) == 0xFF) {
-			DwarfEHDecoder decoder = decoderMap.get(DwarfEHDataDecodeFormat.DW_EH_PE_omit);
-			decoder.setApplicationMode(DwarfEHDataApplicationMode.DW_EH_PE_omit);
-			return decoder;
-		}
-
 		DwarfEHDataDecodeFormat style = DwarfEHDataDecodeFormat.valueOf(format);
 		DwarfEHDataApplicationMode mod = DwarfEHDataApplicationMode.valueOf(appl);
 
-		return getDecoder(style, mod, isIndirect);
+		if ((mode & 0xFF) == 0xFF) {
+			dwarfEHDecoder =
+				new DW_EH_PE_omit_Decoder(DwarfEHDataApplicationMode.DW_EH_PE_omit, false);
+		}
+		else {
+			dwarfEHDecoder = createDecoder(style, mod, isIndirect);
+		}
+
+		decoderMap.put(mode, dwarfEHDecoder);
+
+		return dwarfEHDecoder;
+	}
+
+	private static DwarfEHDecoder createDecoder(DwarfEHDataDecodeFormat style,
+			DwarfEHDataApplicationMode mod, boolean isIndirect) {
+		switch (Objects.requireNonNullElse(style, DwarfEHDataDecodeFormat.DW_EH_PE_omit)) {
+			case DW_EH_PE_absptr:
+				return new DW_EH_PE_absptr_Decoder(mod, isIndirect);
+			case DW_EH_PE_uleb128:
+				return new DW_EH_PE_uleb128_Decoder(mod, isIndirect);
+			case DW_EH_PE_udata2:
+				return new DW_EH_PE_udata2_Decoder(mod, isIndirect);
+			case DW_EH_PE_udata4:
+				return new DW_EH_PE_udata4_Decoder(mod, isIndirect);
+			case DW_EH_PE_udata8:
+				return new DW_EH_PE_udata8_Decoder(mod, isIndirect);
+			case DW_EH_PE_signed:
+				return new DW_EH_PE_signed_Decoder(mod, isIndirect);
+			case DW_EH_PE_sleb128:
+				return new DW_EH_PE_sleb128_Decoder(mod, isIndirect);
+			case DW_EH_PE_sdata2:
+				return new DW_EH_PE_sdata2_Decoder(mod, isIndirect);
+			case DW_EH_PE_sdata4:
+				return new DW_EH_PE_sdata4_Decoder(mod, isIndirect);
+			case DW_EH_PE_sdata8:
+				return new DW_EH_PE_sdata8_Decoder(mod, isIndirect);
+			case DW_EH_PE_omit:
+			default:
+				return new DW_EH_PE_omit_Decoder(mod, isIndirect);
+		}
 	}
 
 	private static abstract class AbstractSignedDwarEHfDecoder extends AbstractDwarfEHDecoder {
+
+		public AbstractSignedDwarEHfDecoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
 
 		@Override
 		public boolean isSigned() {
@@ -109,6 +113,10 @@ public class DwarfDecoderFactory {
 
 	private static abstract class AbstractUnsignedDwarfEHDecoder extends AbstractDwarfEHDecoder {
 
+		public AbstractUnsignedDwarfEHDecoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public boolean isSigned() {
 			return false;
@@ -116,6 +124,10 @@ public class DwarfDecoderFactory {
 	}
 
 	static final class DW_EH_PE_absptr_Decoder extends AbstractUnsignedDwarfEHDecoder {
+
+		public DW_EH_PE_absptr_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
 
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
@@ -174,6 +186,10 @@ public class DwarfDecoderFactory {
 
 	static final class DW_EH_PE_omit_Decoder extends AbstractUnsignedDwarfEHDecoder {
 
+		public DW_EH_PE_omit_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
 			return DwarfEHDataDecodeFormat.DW_EH_PE_omit;
@@ -199,6 +215,10 @@ public class DwarfDecoderFactory {
 	}
 
 	static final class DW_EH_PE_uleb128_Decoder extends AbstractUnsignedDwarfEHDecoder {
+
+		public DW_EH_PE_uleb128_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
 
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
@@ -238,6 +258,10 @@ public class DwarfDecoderFactory {
 
 	static final class DW_EH_PE_udata2_Decoder extends AbstractUnsignedDwarfEHDecoder {
 
+		public DW_EH_PE_udata2_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
 			return DwarfEHDataDecodeFormat.DW_EH_PE_udata2;
@@ -267,6 +291,10 @@ public class DwarfDecoderFactory {
 	}
 
 	static final class DW_EH_PE_udata4_Decoder extends AbstractUnsignedDwarfEHDecoder {
+
+		public DW_EH_PE_udata4_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
 
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
@@ -298,6 +326,10 @@ public class DwarfDecoderFactory {
 
 	static final class DW_EH_PE_udata8_Decoder extends AbstractUnsignedDwarfEHDecoder {
 
+		public DW_EH_PE_udata8_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
 			return DwarfEHDataDecodeFormat.DW_EH_PE_udata8;
@@ -328,6 +360,10 @@ public class DwarfDecoderFactory {
 
 	static final class DW_EH_PE_signed_Decoder extends AbstractSignedDwarEHfDecoder {
 
+		public DW_EH_PE_signed_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
 			return DwarfEHDataDecodeFormat.DW_EH_PE_signed;
@@ -351,6 +387,10 @@ public class DwarfDecoderFactory {
 	}
 
 	static final class DW_EH_PE_sleb128_Decoder extends AbstractSignedDwarEHfDecoder {
+
+		public DW_EH_PE_sleb128_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
 
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
@@ -389,6 +429,10 @@ public class DwarfDecoderFactory {
 
 	static final class DW_EH_PE_sdata2_Decoder extends AbstractSignedDwarEHfDecoder {
 
+		public DW_EH_PE_sdata2_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
 			return DwarfEHDataDecodeFormat.DW_EH_PE_sdata2;
@@ -419,6 +463,10 @@ public class DwarfDecoderFactory {
 
 	static final class DW_EH_PE_sdata4_Decoder extends AbstractSignedDwarEHfDecoder {
 
+		public DW_EH_PE_sdata4_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
+
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {
 			return DwarfEHDataDecodeFormat.DW_EH_PE_sdata4;
@@ -448,6 +496,10 @@ public class DwarfDecoderFactory {
 	}
 
 	static final class DW_EH_PE_sdata8_Decoder extends AbstractSignedDwarEHfDecoder {
+
+		public DW_EH_PE_sdata8_Decoder(DwarfEHDataApplicationMode mode, boolean isIndirect) {
+			super(mode, isIndirect);
+		}
 
 		@Override
 		public DwarfEHDataDecodeFormat getDataFormat() {

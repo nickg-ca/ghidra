@@ -17,10 +17,10 @@ package ghidra.app.util.bin.format.elf;
 
 import ghidra.app.util.bin.format.MemoryLoadable;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.util.exception.InvalidInputException;
@@ -36,6 +36,15 @@ public interface ElfLoadHelper {
 	 * @return program object
 	 */
 	Program getProgram();
+
+	/**
+	 * Get an import processing option value
+	 * @param <T> class of option value (e.g., String, Boolean, etc.)
+	 * @param optionName option name
+	 * @param defaultValue default option value which also establishes expected value type
+	 * @return option value
+	 */
+	<T> T getOption(String optionName, T defaultValue);
 
 	/**
 	 * Get ELF Header object
@@ -187,5 +196,33 @@ public interface ElfLoadHelper {
 	 * @return address range or null if no unallocated range found
 	 */
 	public AddressRange allocateLinkageBlock(int alignment, int size, String purpose);
+
+	/**
+	 * <p>Get the original memory value at the specified address if a relocation was applied at the
+	 * specified address (not containing).  Current memory value will be returned if no relocation
+	 * has been applied at specified address.  The value size is either 8-bytes if {@link ElfHeader#is64Bit()},
+	 * otherwise it will be 4-bytes.  This is primarily intended to inspect original bytes within 
+	 * the GOT which may have had relocations applied to them.
+	 * @param addr memory address
+	 * @param signExtend if true sign-extend to long, else treat as unsigned
+	 * @return original bytes value
+	 * @throws MemoryAccessException if memory read fails
+	 */
+	public long getOriginalValue(Address addr, boolean signExtend)
+			throws MemoryAccessException;
+
+	/**
+	 * Add a fake relocation table entry if none previously existed for the specified address.
+	 * This is intended to record original file bytes when forced modifications have been
+	 * performed during the ELF import processing.  A relocation type of 0 will be specified for
+	 * fake entry.
+	 * @param address relocation address
+	 * @param length number of bytes affected
+	 * @return true if recorded successfully, or false if conflict with existing relocation entry occurs
+	 * @throws MemoryAccessException if unable to read bytes from memory
+	 * @throws AddressOverflowException if range address wrap occurs
+	 */
+	public boolean addFakeRelocTableEntry(Address address, int length)
+			throws MemoryAccessException, AddressOverflowException;
 
 }

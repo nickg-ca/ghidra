@@ -24,6 +24,7 @@ import agent.gdb.manager.GdbManager.StepCmd;
 import agent.gdb.manager.impl.GdbFrameInfo;
 import agent.gdb.manager.impl.GdbThreadInfo;
 import agent.gdb.manager.impl.cmd.GdbStateChangeRecord;
+import agent.gdb.manager.impl.cmd.GdbConsoleExecCommand.CompletesWithRunning;
 import agent.gdb.manager.reason.GdbBreakpointHitReason;
 import ghidra.async.AsyncUtils;
 import ghidra.dbg.agent.DefaultTargetObject;
@@ -108,6 +109,7 @@ public class GdbModelTargetThread
 			this.info = res;
 			changeAttributes(List.of(), Map.of( //
 				SHORT_DISPLAY_ATTRIBUTE_NAME, shortDisplay = computeShortDisplay(), //
+				TID_ATTRIBUTE_NAME, info.getTid(), //
 				DISPLAY_ATTRIBUTE_NAME, display = computeDisplay() //
 			), "Initialized");
 		});
@@ -214,7 +216,7 @@ public class GdbModelTargetThread
 				throw new UnsupportedOperationException(kind.name());
 			case ADVANCE: // Why no exec-advance in GDB/MI?
 				// TODO: This doesn't work, since advance requires a parameter
-				return model.gateFuture(thread.console("advance"));
+				return model.gateFuture(thread.console("advance", CompletesWithRunning.CANNOT));
 			default:
 				return model.gateFuture(thread.step(convertToGdb(kind)));
 		}

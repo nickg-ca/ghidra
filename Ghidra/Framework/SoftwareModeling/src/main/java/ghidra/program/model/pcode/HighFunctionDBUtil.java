@@ -254,8 +254,8 @@ public class HighFunctionDBUtil {
 
 		Register reg = var.getRegister();
 		if (reg != null) {
-			program.getReferenceManager().addRegisterReference(pcAddr, -1, reg, RefType.WRITE,
-				source);
+			program.getReferenceManager()
+					.addRegisterReference(pcAddr, -1, reg, RefType.WRITE, source);
 		}
 
 		return var;
@@ -496,8 +496,7 @@ public class HighFunctionDBUtil {
 			VariableStorage storage = highSymbol.getStorage();
 			Address pcAddr = highSymbol.getPCAddress();
 			HighVariable tmpHigh = highSymbol.getHighVariable();
-			if (!storage.isHashStorage() && tmpHigh != null &&
-				tmpHigh.requiresDynamicStorage()) {
+			if (!storage.isHashStorage() && tmpHigh != null && tmpHigh.requiresDynamicStorage()) {
 				DynamicEntry entry = DynamicEntry.build(tmpHigh.getRepresentative());
 				storage = entry.getStorage();
 				pcAddr = entry.getPCAdress();	// The address may change from original Varnode
@@ -636,18 +635,6 @@ public class HighFunctionDBUtil {
 			return null;
 		}
 		Address addr = storage.getFirstVarnode().getAddress();
-		if (storage.size() != dt.getLength() && program.getMemory().isBigEndian()) {
-			// maintain address of lsb
-			long delta = storage.size() - dt.getLength();
-			try {
-				addr = addr.addNoWrap(delta);
-			}
-			catch (AddressOverflowException e) {
-				throw new InvalidInputException(
-					"Unable to resize global storage for " + dt.getName() + " at " + addr);
-			}
-		}
-
 		Listing listing = program.getListing();
 		Data d = listing.getDataAt(addr);
 		if (d != null && d.getDataType().isEquivalent(dt)) {
@@ -728,19 +715,74 @@ public class HighFunctionDBUtil {
 		}
 		if (op.getOpcode() == PcodeOp.PTRSUB) {
 			Varnode vnode = op.getInput(0);
+			Varnode cnode = op.getInput(1);
 			if (vnode.isRegister()) {
 				AddressSpace stackspace = program.getAddressFactory().getStackSpace();
 				if (stackspace != null) {
-					Address caddr = op.getInput(1).getAddress();
-					storageAddress = stackspace.getAddress(caddr.getOffset());
+					storageAddress = stackspace.getAddress(cnode.getOffset());
 				}
 			}
 			else {
-				Address caddr = op.getInput(1).getAddress();
-				storageAddress = program.getAddressFactory().getDefaultAddressSpace().getAddress(
-					caddr.getOffset());
+				AddressSpace space = program.getAddressFactory().getDefaultAddressSpace();
+				if (space instanceof SegmentedAddressSpace) {
+					// Assume this is a "full" encoding of the offset
+					int innersize = space.getPointerSize();
+					int base = (int) (cnode.getOffset() >>> 8 * innersize);
+					int off = (int) cnode.getOffset() & ((1 << 8 * innersize) - 1);
+					storageAddress = ((SegmentedAddressSpace) space).getAddress(base, off);
+				}
+				else {
+					storageAddress = space.getAddress(cnode.getOffset());
+				}
 			}
 		}
 		return storageAddress;
+	}
+
+	/**
+	 * Write a union facet to the database (UnionFacetSymbol).  Parameters provide the
+	 * pieces for building the dynamic LocalVariable.  This method clears out any preexisting
+	 * union facet with the same dynamic hash and firstUseOffset.
+	 * @param function is the function affected by the union facet
+	 * @param dt is the parent data-type, either the union or a pointer to it
+	 * @param fieldNum is the ordinal of the desired union field
+	 * @param addr is the first use address of the facet
+	 * @param hash is the dynamic hash
+	 * @param source is the SourceType for the LocalVariable
+	 * @throws InvalidInputException if the LocalVariable cannot be created
+	 * @throws DuplicateNameException if the (auto-generated) name is used elsewhere
+	 */
+	public static void writeUnionFacet(Function function, DataType dt, int fieldNum, Address addr,
+			long hash, SourceType source) throws InvalidInputException, DuplicateNameException {
+		int firstUseOffset = (int) addr.subtract(function.getEntryPoint());
+		String symbolName = UnionFacetSymbol.buildSymbolName(fieldNum, addr);
+		boolean nameCollision = false;
+		Variable[] localVariables =
+			function.getLocalVariables(VariableFilter.UNIQUE_VARIABLE_FILTER);
+		Variable preexistingVar = null;
+		for (Variable var : localVariables) {
+			if (var.getFirstUseOffset() == firstUseOffset &&
+				var.getFirstStorageVarnode().getOffset() == hash) {
+				preexistingVar = var;
+			}
+			else if (var.getName().startsWith(symbolName)) {
+				nameCollision = true;
+			}
+		}
+		if (nameCollision) {	// Uniquify the name if necessary
+			symbolName = symbolName + '_' + Integer.toHexString(DynamicHash.getComparable(hash));
+		}
+		if (preexistingVar != null) {
+			if (preexistingVar.getName().equals(symbolName)) {
+				return;			// No change to make
+			}
+			preexistingVar.setName(symbolName, source);		// Change the name
+			return;
+		}
+		Program program = function.getProgram();
+		VariableStorage storage =
+			new VariableStorage(program, AddressSpace.HASH_SPACE.getAddress(hash), dt.getLength());
+		Variable var = new LocalVariableImpl(symbolName, firstUseOffset, dt, storage, program);
+		function.addLocalVariable(var, SourceType.USER_DEFINED);
 	}
 }

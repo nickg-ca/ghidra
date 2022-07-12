@@ -343,16 +343,24 @@ public class DebuggerStackProvider extends ComponentProviderAdapter {
 	}
 
 	private void rowActivated(StackFrameRow row) {
+		if (row == null) {
+			return;
+		}
 		TraceStackFrame frame = row.frame;
+		if (frame == null) {
+			return;
+		}
 		TraceThread thread = frame.getStack().getThread();
 		Trace trace = thread.getTrace();
 		TraceRecorder recorder = modelService.getRecorder(trace);
-		if (recorder != null) {
-			TargetStackFrame targetFrame = recorder.getTargetStackFrame(thread, frame.getLevel());
-			if (targetFrame != null && targetFrame.isValid()) {
-				DebugModelConventions.requestActivation(targetFrame);
-			}
+		if (recorder == null) {
+			return;
 		}
+		TargetStackFrame targetFrame = recorder.getTargetStackFrame(thread, frame.getLevel());
+		if (targetFrame == null || !targetFrame.isValid()) {
+			return;
+		}
+		DebugModelConventions.requestActivation(targetFrame);
 	}
 
 	protected void createActions() {
@@ -373,7 +381,7 @@ public class DebuggerStackProvider extends ComponentProviderAdapter {
 	}
 
 	protected void updateStack() {
-		Set<TraceStackFrame> toAdd = new LinkedHashSet<>(currentStack.getFrames());
+		Set<TraceStackFrame> toAdd = new LinkedHashSet<>(currentStack.getFrames(current.getSnap()));
 		for (Iterator<StackFrameRow> it = stackTableModel.getModelData().iterator(); it
 				.hasNext();) {
 			StackFrameRow row = it.next();
@@ -401,12 +409,13 @@ public class DebuggerStackProvider extends ComponentProviderAdapter {
 			contextChanged();
 			return;
 		}
-		if (currentStack == stack) {
+		if (currentStack == stack && stack.hasFixedFrames()) {
+			stackTableModel.fireTableDataChanged();
 			return;
 		}
 		currentStack = stack;
 		stackTableModel.clear();
-		for (TraceStackFrame frame : currentStack.getFrames()) {
+		for (TraceStackFrame frame : currentStack.getFrames(current.getSnap())) {
 			stackTableModel.add(new StackFrameRow(this, frame));
 		}
 	}
@@ -433,7 +442,7 @@ public class DebuggerStackProvider extends ComponentProviderAdapter {
 		}
 		Address address = curTrace.getBaseLanguage()
 				.getDefaultSpace()
-				.getAddress(value.getUnsignedValue().longValue());
+				.getAddress(value.getUnsignedValue().longValue(), true);
 		stackTableModel.add(new StackFrameRow.Synthetic(this, address));
 	}
 
