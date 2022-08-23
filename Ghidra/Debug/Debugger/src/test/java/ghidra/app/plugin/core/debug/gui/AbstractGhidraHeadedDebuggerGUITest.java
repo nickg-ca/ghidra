@@ -567,7 +567,12 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 	@After
 	public void tearDown() {
 		waitForTasks();
-		runSwing(() -> traceManager.setSaveTracesByDefault(false));
+		runSwing(() -> {
+			if (traceManager == null) {
+				return;
+			}
+			traceManager.setSaveTracesByDefault(false);
+		});
 
 		if (tb != null) {
 			if (traceManager != null && traceManager.getOpenTraces().contains(tb.trace)) {
@@ -600,7 +605,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 		modelService.addModel(mb.testModel);
 	}
 
-	protected TraceRecorder recordAndWaitSync() throws Exception {
+	protected TraceRecorder recordAndWaitSync() throws Throwable {
 		createTestModel();
 		mb.createTestProcessesAndThreads();
 		mb.createTestThreadRegisterBanks();
@@ -613,22 +618,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 		TraceRecorder recorder = modelService.recordTarget(mb.testProcess1,
 			createTargetTraceMapper(mb.testProcess1), ActionSource.AUTOMATIC);
 
-		waitFor(() -> {
-			TraceThread thread = recorder.getTraceThread(mb.testThread1);
-			if (thread == null) {
-				return false;
-			}
-			/*
-			DebuggerRegisterMapper mapper = recorder.getRegisterMapper(thread);
-			if (mapper == null) {
-				return false;
-			}
-			if (!mapper.getRegistersOnTarget().containsAll(baseRegs)) {
-				return false;
-			}
-			*/
-			return true;
-		});
+		waitRecorder(recorder);
 		return recorder;
 	}
 
@@ -736,7 +726,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 		program = new ProgramDB("static-" + name.getMethodName(), lang,
 			lang.getDefaultCompilerSpec(), this);
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(program, "Set Executable Path", true)) {
+			UndoableTransaction.start(program, "Set Executable Path")) {
 			program.setExecutablePath(path);
 		}
 		programManager.openProgram(program);
