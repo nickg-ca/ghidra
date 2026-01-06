@@ -23,11 +23,17 @@ Create a local MCP server mode for Ghidra using the `stdio` interface. This allo
     *   Initializes the `StdioServerTransport` for JSON-RPC communication over standard input/output.
     *   Redirects Ghidra's `System.out` to `System.err` to ensure protocol messages on `stdout` are not corrupted by Ghidra logs.
     *   Registers tools and resources.
+    *   Manages the current context (`McpContext`) including the active program.
 
 2.  **Tools (`ghidra.mcp.tools`)**:
     *   Expose specific Ghidra functionalities as MCP Tools.
-    *   **Implemented Tools:**
-        *   `list_tools_info`: Lists available tools (meta-tool).
+    *   **Core Tools:**
+        *   `list_tools_info`: Lists available tools.
+    *   **Project Management Tools:**
+        *   `list_project_files`: Lists all files in the current Ghidra project.
+        *   `open_program`: Opens a specific program from the project.
+        *   `close_program`: Closes the current program.
+    *   **Reverse Engineering Tools:**
         *   `get_listing`: Retrieves disassembly listing for a range of addresses.
         *   `decompile_function`: Decompiles a function at a given address.
         *   `get_symbol`: Retrieves symbol information for an address.
@@ -41,14 +47,22 @@ Create a local MCP server mode for Ghidra using the `stdio` interface. This allo
     *   A Ghidra Script to launch the server.
     *   Designed to be run in Headless mode (e.g., via `./analyzeHeadless`).
     *   Keeps the process alive to maintain the server connection.
+    *   Supports running with or without an initial binary.
 
 ## Usage
 
 To run the MCP server, use Ghidra's headless analyzer with the `RunMCPServer.java` script.
 
+### Mode 1: With a specific binary
 ```bash
 <ghidra_install>/support/analyzeHeadless <project_path> <project_name> -process <binary_name> -postScript RunMCPServer.java
 ```
+
+### Mode 2: Project Mode (No initial binary)
+```bash
+<ghidra_install>/support/analyzeHeadless <project_path> <project_name> -noanalysis -preScript RunMCPServer.java
+```
+*Note: In this mode, use the `open_program` tool to load a binary.*
 
 Ensure the MCP client is configured to spawn this process and communicate via stdin/stdout.
 

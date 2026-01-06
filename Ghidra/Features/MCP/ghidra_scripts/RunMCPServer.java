@@ -21,21 +21,23 @@
 
 import ghidra.app.script.GhidraScript;
 import ghidra.mcp.MCPServer;
+import ghidra.framework.model.DomainFolder;
 
 public class RunMCPServer extends GhidraScript {
 
     @Override
     public void run() throws Exception {
 
-        // Ensure we have a program
-        if (currentProgram == null) {
-            println("MCP Server requires an active program.");
-            return;
-        }
-
         println("Starting MCP Server...");
 
-        MCPServer server = new MCPServer(state.getTool(), currentProgram);
+        // Pass currentProgram (can be null if run without -process)
+        // Pass project root folder
+        DomainFolder projectRoot = null;
+        if (state.getProject() != null) {
+             projectRoot = state.getProject().getProjectData().getRootFolder();
+        }
+
+        MCPServer server = new MCPServer(state.getTool(), currentProgram, projectRoot);
         server.start();
 
         // Keep alive loop

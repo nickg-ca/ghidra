@@ -7,6 +7,7 @@ import java.util.function.Function;
 import com.google.gson.Gson;
 
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.mcp.McpContext;
 import ghidra.mcp.McpTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressFactory;
@@ -42,9 +43,14 @@ public class GetListingTool implements McpTool {
     }
 
     @Override
-    public Function<Map<String, Object>, CallToolResult> getHandler(PluginTool tool, Program program) {
+    public Function<Map<String, Object>, CallToolResult> getHandler(McpContext context) {
         return args -> {
             try {
+                Program program = context.getCurrentProgram();
+                if (program == null) {
+                    return new CallToolResult(List.of(new TextContent("No active program.")), true);
+                }
+
                 String addrStr = (String) args.get("address");
                 int length = ((Number) args.get("length")).intValue();
 
@@ -75,10 +81,7 @@ public class GetListingTool implements McpTool {
                             if (op < numOperands -1) sb.append(", ");
                         }
                     } else {
-                        // For data, just print what we can, usually mnemonics handles it or we need data specific methods
-                        // But CodeUnit.getMnemonicString usually covers basic data type name.
-                        // We can also try to get value representation if needed.
-                        // For now, simple is fine.
+                        // Data handling
                     }
                     sb.append("\n");
                 }

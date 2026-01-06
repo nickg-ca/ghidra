@@ -9,6 +9,7 @@ import com.google.gson.Gson;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.mcp.McpContext;
 import ghidra.mcp.McpTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.FunctionIterator;
@@ -39,9 +40,14 @@ public class DecompileTool implements McpTool {
     }
 
     @Override
-    public Function<Map<String, Object>, CallToolResult> getHandler(PluginTool tool, Program program) {
+    public Function<Map<String, Object>, CallToolResult> getHandler(McpContext context) {
         return args -> {
             try {
+                Program program = context.getCurrentProgram();
+                if (program == null) {
+                    return new CallToolResult(List.of(new TextContent("No active program.")), true);
+                }
+
                 String addrStr = (String) args.get("address");
                 Address addr = program.getAddressFactory().getAddress(addrStr);
 

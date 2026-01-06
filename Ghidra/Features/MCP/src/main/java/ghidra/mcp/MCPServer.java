@@ -1,18 +1,12 @@
 package ghidra.mcp;
 
-import java.io.InputStream;
 import java.io.PrintStream;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
+import ghidra.framework.model.DomainFolder;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.mcp.resources.McpResourceManager;
-import ghidra.mcp.tools.DecompileTool;
-import ghidra.mcp.tools.GetListingTool;
-import ghidra.mcp.tools.GetSymbolTool;
-import ghidra.mcp.tools.ListToolsTool;
+import ghidra.mcp.tools.*;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransport;
@@ -23,14 +17,12 @@ import io.modelcontextprotocol.spec.McpSchema;
  */
 public class MCPServer {
 
-    private final PluginTool tool;
-    private final Program program;
+    private final McpContext context;
     private McpSyncServer mcpServer;
     private PrintStream originalStdout;
 
-    public MCPServer(PluginTool tool, Program program) {
-        this.tool = tool;
-        this.program = program;
+    public MCPServer(PluginTool tool, Program program, DomainFolder projectRoot) {
+        this.context = new McpContext(tool, program, projectRoot);
     }
 
     public void start() {
@@ -38,14 +30,9 @@ public class MCPServer {
         originalStdout = System.out;
 
         // 2. Initialize Transport with Original Stdout
-        // We instantiate this BEFORE redirecting System.out.
-        // We rely on StdioServerTransport capturing System.out at construction time.
-        // If it doesn't, and uses System.out lazily, we would need a library change or reflection,
-        // but typically these transports capture the stream.
         StdioServerTransport transport = new StdioServerTransport();
 
         // 3. Redirect System.out to System.err
-        // This prevents Ghidra's console logs (which go to System.out) from corrupting the JSON-RPC stream (originalStdout).
         System.setOut(System.err);
 
         // 4. Initialize Registry and Helpers
@@ -58,22 +45,26 @@ public class MCPServer {
         mcpServer = McpServer.sync(transport)
                 .serverInfo("GhidraMCP", "1.0.0")
                 .capabilities(McpSchema.ServerCapabilities.builder()
-                        .resources(false, true) // subscribe, listChanged
-                        .tools(true) // listChanged
+                        .resources(false, true)
+                        .tools(true)
                         .prompts(false)
                         .logging()
                         .build())
                 .tools(toolRegistry.getRegisteredTools().values().stream().toList())
                 .resources(resourceManager.getResources())
                 .build();
-
-         // Note: McpSyncServer usually starts listening upon creation/build if the transport is active.
-         // StdioServerTransport likely starts its reading thread in its constructor or when attached.
     }
 
     private void registerTools(McpToolRegistry registry) {
-        // Helper to register tools
+        // Core Tools
         registerTool(registry, new ListToolsTool());
+
+        // Project Management Tools
+        registerTool(registry, new ListFilesTool());
+        registerTool(registry, new OpenProgramTool());
+        registerTool(registry, new CloseProgramTool());
+
+        // Reversing Tools
         registerTool(registry, new GetListingTool());
         registerTool(registry, new DecompileTool());
         registerTool(registry, new GetSymbolTool());
@@ -82,7 +73,7 @@ public class MCPServer {
     private void registerTool(McpToolRegistry registry, McpTool toolInstance) {
         registry.register(
             toolInstance.getToolDef(),
-            toolInstance.getHandler(tool, program)
+            toolInstance.getHandler(context)
         );
     }
 
