@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
+import ghidra.mcp.prompts.BatchHelpPrompt;
 import ghidra.mcp.resources.McpResourceManager;
 import ghidra.mcp.tools.*;
 import io.modelcontextprotocol.server.McpServer;
@@ -41,23 +42,33 @@ public class MCPServer {
 
         McpResourceManager resourceManager = new McpResourceManager();
 
+        McpPromptRegistry promptRegistry = new McpPromptRegistry();
+        registerPrompts(promptRegistry);
+
         // 5. Initialize Server
         mcpServer = McpServer.sync(transport)
                 .serverInfo("GhidraMCP", "1.0.0")
                 .capabilities(McpSchema.ServerCapabilities.builder()
                         .resources(false, true)
                         .tools(true)
-                        .prompts(false)
+                        .prompts(true)
                         .logging()
                         .build())
                 .tools(toolRegistry.getRegisteredTools().values().stream().toList())
                 .resources(resourceManager.getResources())
+                .prompts(promptRegistry.getRegisteredPrompts().values().stream().toList())
                 .build();
+    }
+
+    private void registerPrompts(McpPromptRegistry registry) {
+        new BatchHelpPrompt().register(registry);
     }
 
     private void registerTools(McpToolRegistry registry) {
         // Core Tools
         registerTool(registry, new ListToolsTool());
+        // Batch Tool - needs registry access
+        registerTool(registry, new ExecuteBatchTool(registry));
 
         // Project Management Tools
         registerTool(registry, new ListFilesTool());

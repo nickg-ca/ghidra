@@ -19,4 +19,8 @@ public class McpToolRegistry {
     public Map<String, SyncToolRegistration> getRegisteredTools() {
         return tools;
     }
+
+    public SyncToolRegistration getTool(String name) {
+        return tools.get(name);
+    }
 }
