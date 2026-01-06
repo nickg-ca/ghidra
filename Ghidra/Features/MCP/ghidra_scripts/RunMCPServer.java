@@ -28,7 +28,8 @@ public class RunMCPServer extends GhidraScript {
     @Override
     public void run() throws Exception {
 
-        println("Starting MCP Server...");
+        // Use printerr for logging to avoid corrupting stdio transport
+        printerr("Starting MCP Server...");
 
         // Pass currentProgram (can be null if run without -process)
         // Pass project root folder

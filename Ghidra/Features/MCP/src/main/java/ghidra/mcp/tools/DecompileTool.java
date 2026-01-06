@@ -6,8 +6,6 @@ import java.util.function.Function;
 
 import com.google.gson.Gson;
 
-import ghidra.app.decompiler.DecompInterface;
-import ghidra.app.decompiler.DecompileResults;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.mcp.McpContext;
 import ghidra.mcp.McpTool;
@@ -21,6 +19,15 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 public class DecompileTool implements McpTool {
 
     private static final Gson gson = new Gson();
+    private final DecompilerFactory factory;
+
+    public DecompileTool() {
+        this(() -> new DefaultDecompilerWrapper());
+    }
+
+    public DecompileTool(DecompilerFactory factory) {
+        this.factory = factory;
+    }
 
     @Override
     public Tool getToolDef() {
@@ -60,24 +67,27 @@ public class DecompileTool implements McpTool {
                      return new CallToolResult(List.of(new TextContent("No function found at address")), true);
                 }
 
-                DecompInterface ifc = new DecompInterface();
-                ifc.openProgram(program);
+                DecompilerWrapper ifc = factory.create();
+                try {
+                    ifc.openProgram(program);
 
-                DecompileResults res = ifc.decompileFunction(func, 60, null);
+                    McpDecompileResult res = ifc.decompileFunction(func, 60, null);
 
-                String code = "";
-                if (res.decompileCompleted()) {
-                    code = res.getDecompiledFunction().getC();
-                } else {
-                    code = "Decompilation failed: " + res.getErrorMessage();
+                    String code = "";
+                    if (res != null && res.decompileCompleted()) {
+                        code = res.getC();
+                    } else {
+                        String msg = (res != null) ? res.getErrorMessage() : "Unknown error";
+                        code = "Decompilation failed: " + msg;
+                    }
+
+                    return new CallToolResult(
+                        List.of(new TextContent(code)),
+                        false
+                    );
+                } finally {
+                    ifc.dispose();
                 }
-
-                ifc.dispose();
-
-                return new CallToolResult(
-                    List.of(new TextContent(code)),
-                    false
-                );
 
             } catch (Exception e) {
                 return new CallToolResult(

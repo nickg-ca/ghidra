@@ -55,27 +55,13 @@ public class OpenProgramTool implements McpTool {
                 // Close current if open
                 Program current = context.getCurrentProgram();
                 if (current != null) {
-                    current.release(this); // Release consumer? Or we need to properly close.
-                    // In plugin tool environment, we usually request the tool to close it.
-                    // But here we might just have a reference.
-                    // Ghidra's Program management in scripts is usually handled by `openProgram`/`closeProgram`.
-                    // But we are in a headless script context where we are managing it manually?
-
-                    // If we opened it via domainObject.release(consumer)
-                    // We need a consumer object.
-                    // Let's assume we can just replace the reference for now and release the old one?
-                    // Actually, Program.release(Object consumer) is the way.
-                    // Who is the consumer? The MCPServer instance or this tool?
-                    // We should probably have MCPServer manage the lifecycle.
-
-                    // Ideally, we should close it.
-                    // But `current` might be the one passed from `RunMCPServer` which the script manages.
-                    // If we switch, we are responsible for the new one.
+                    // Fix: Use 'context' as the consumer, consistent with how we open programs below
+                    current.release(context);
                 }
 
                 // Open new program
                 // DomainFile.getDomainObject(consumer, boolean upgrade, boolean recover, TaskMonitor)
-                Object consumer = context; // Use context as consumer?
+                Object consumer = context; // Use context as consumer
                 Program newProgram = (Program) file.getDomainObject(consumer, false, false, ghidra.util.task.TaskMonitor.DUMMY);
 
                 if (newProgram == null) {
