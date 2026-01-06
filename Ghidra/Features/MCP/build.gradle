@@ -32,7 +32,7 @@ dependencies {
     api project(':Decompiler') // Added dependency for Decompiler
 
     // MCP Java SDK
-    api 'io.modelcontextprotocol.sdk:mcp:0.7.0'
+    api 'io.modelcontextprotocol.sdk:mcp:0.17.0'
 
 	testImplementation project(path: ':Base', configuration: 'testArtifacts')
 	testImplementation project(path: ':SoftwareModeling', configuration: 'testArtifacts')
