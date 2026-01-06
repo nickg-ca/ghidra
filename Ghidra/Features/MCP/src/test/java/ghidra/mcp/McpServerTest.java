@@ -20,9 +20,11 @@ import ghidra.mcp.tools.McpDecompileResult;
 import ghidra.mcp.tools.DecompileTool;
 import ghidra.mcp.tools.GetListingTool;
 import ghidra.mcp.tools.ReadBytesTool;
+import ghidra.mcp.tools.SetLabelTool;
+import ghidra.mcp.tools.SetCommentTool;
+import ghidra.mcp.tools.WriteBytesTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressFactory;
-import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.address.GenericAddressSpace;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CodeUnitIterator;
@@ -32,6 +34,7 @@ import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
+import ghidra.program.model.symbol.SymbolTable;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 
@@ -66,6 +69,52 @@ public class McpServerTest {
 
         // Mock memory returns bytes: 0, 1, 2, 3
         assertEquals("00010203", text.text());
+    }
+
+    @Test
+    public void testWriteBytes() {
+        WriteBytesTool tool = new WriteBytesTool();
+        Map<String, Object> args = new HashMap<>();
+        args.put("address", "1000");
+        args.put("bytes", "01020304");
+
+        CallToolResult result = tool.getHandler(context).apply(args);
+        List<io.modelcontextprotocol.spec.McpSchema.Content> content = result.content();
+        assertEquals(1, content.size());
+        TextContent text = (TextContent) content.get(0);
+
+        assertTrue("Expected success message but got: " + text.text(), text.text().contains("Wrote 4 bytes"));
+    }
+
+    @Test
+    public void testSetLabel() {
+        SetLabelTool tool = new SetLabelTool();
+        Map<String, Object> args = new HashMap<>();
+        args.put("address", "1000");
+        args.put("label", "my_func");
+
+        CallToolResult result = tool.getHandler(context).apply(args);
+        List<io.modelcontextprotocol.spec.McpSchema.Content> content = result.content();
+        assertEquals(1, content.size());
+        TextContent text = (TextContent) content.get(0);
+
+        assertTrue("Expected success message but got: " + text.text(), text.text().contains("Label 'my_func' set"));
+    }
+
+    @Test
+    public void testSetComment() {
+        SetCommentTool tool = new SetCommentTool();
+        Map<String, Object> args = new HashMap<>();
+        args.put("address", "1000");
+        args.put("comment", "This is a comment");
+        args.put("type", "eol");
+
+        CallToolResult result = tool.getHandler(context).apply(args);
+        List<io.modelcontextprotocol.spec.McpSchema.Content> content = result.content();
+        assertEquals(1, content.size());
+        TextContent text = (TextContent) content.get(0);
+
+        assertTrue("Expected success message but got: " + text.text(), text.text().contains("Comment set at"));
     }
 
     @Test
@@ -139,12 +188,25 @@ public class McpServerTest {
                     new ListingHandler()
                 );
             }
+            if (method.getName().equals("getSymbolTable")) {
+                return (SymbolTable) Proxy.newProxyInstance(
+                    SymbolTable.class.getClassLoader(),
+                    new Class[] { SymbolTable.class },
+                    new SymbolTableHandler()
+                );
+            }
             if (method.getName().equals("getFunctionManager")) {
                 return (FunctionManager) Proxy.newProxyInstance(
                     FunctionManager.class.getClassLoader(),
                     new Class[] { FunctionManager.class },
                     new FunctionManagerHandler()
                 );
+            }
+            if (method.getName().equals("startTransaction")) {
+                return 1; // Dummy transaction ID
+            }
+            if (method.getName().equals("endTransaction")) {
+                return true; // endTransaction returns boolean
             }
             return null;
         }
@@ -172,6 +234,11 @@ public class McpServerTest {
                 }
                 return buffer.length;
             }
+            if (method.getName().equals("setBytes")) {
+                // setBytes(Address addr, byte[] b)
+                // Just pretend it worked
+                return null;
+            }
             return null;
         }
     }
@@ -182,6 +249,23 @@ public class McpServerTest {
             if (method.getName().equals("getCodeUnits")) {
                 // getCodeUnits(Address start, boolean forward)
                 return new MockCodeUnitIterator();
+            }
+            if (method.getName().equals("setComment")) {
+                // setComment(Address address, int commentType, String comment)
+                // Just pretend it worked
+                return null;
+            }
+            return null;
+        }
+    }
+
+    private class SymbolTableHandler implements InvocationHandler {
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            if (method.getName().equals("createLabel")) {
+                // createLabel(Address addr, String name, SourceType source)
+                // Just pretend it worked
+                return null;
             }
             return null;
         }
