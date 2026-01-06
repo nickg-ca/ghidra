@@ -37,6 +37,11 @@ Create a local MCP server mode for Ghidra using the `stdio` interface. This allo
         *   `get_listing`: Retrieves disassembly listing for a range of addresses.
         *   `decompile_function`: Decompiles a function at a given address.
         *   `get_symbol`: Retrieves symbol information for an address.
+        *   `read_bytes`: Reads raw bytes from memory at a given address.
+    *   **Modification Tools:**
+        *   `set_label`: Renames or creates a label (symbol) at a specific address.
+        *   `set_comment`: Adds or modifies comments (plate, pre, eol, post, repeatable) at an address.
+        *   `write_bytes`: Writes raw bytes to memory at a specific address.
 
 3.  **Resources (`ghidra.mcp.resources`)**:
     *   Expose data as MCP Resources (read-only data sources).
@@ -70,8 +75,5 @@ Ensure the MCP client is configured to spawn this process and communicate via st
 
 *   **Prompts:** Implement MCP Prompts to guide the AI in specific reverse engineering workflows.
 *   **More Tools:** Add support for:
-    *   Renaming symbols (`set_label`).
-    *   Adding comments (`set_comment`).
-    *   Reading/Writing bytes (`read_bytes`, `write_bytes`).
     *   Running arbitrary scripts.
 *   **Authentication:** Implement authentication if exposing over network (currently local stdio only).
