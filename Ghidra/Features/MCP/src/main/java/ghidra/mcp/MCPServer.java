@@ -69,6 +69,9 @@ public class MCPServer {
         registerTool(registry, new DecompileTool());
         registerTool(registry, new GetSymbolTool());
         registerTool(registry, new ReadBytesTool());
+        registerTool(registry, new SetLabelTool());
+        registerTool(registry, new SetCommentTool());
+        registerTool(registry, new WriteBytesTool());
     }
 
     private void registerTool(McpToolRegistry registry, McpTool toolInstance) {
