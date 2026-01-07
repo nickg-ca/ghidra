@@ -1,0 +1,7 @@
+META-INF/
+META-INF/MANIFEST.MF
+META-INF/maven/
+META-INF/maven/io.modelcontextprotocol.sdk/
+META-INF/maven/io.modelcontextprotocol.sdk/mcp/
+META-INF/maven/io.modelcontextprotocol.sdk/mcp/pom.xml
+META-INF/maven/io.modelcontextprotocol.sdk/mcp/pom.properties

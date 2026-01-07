@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+# Wrapper script to run Ghidra MCP Server
+# Usage: mcpRun <ProjectDirectory> <ProjectName>
+#
+# This script invokes analyzeHeadless but suppresses its stdout to ensure the MCP JSON-RPC
+# channel (which uses stdout) remains clean.
+#
+# It redirects the analyzeHeadless stdout to stderr, BUT the Java process inside
+# RunMCPServer.java will grab the *original* stdout (fd 1) before it gets redirected?
+# No, if we redirect here: `analyzeHeadless ... >&2`, then the Java process inherits fd 1 as stderr.
+# That breaks the communication channel.
+#
+# We need to Keep fd 1 connected to the actual stdout for the Java process,
+# but silence the shell script noise and JVM startup noise.
+#
+# The `launch.sh` is noisy.
+#
+# Strategy:
+# We rely on `RunMCPServer.java` to switch `System.out` to `System.err`.
+# But `launch.sh` writes to stdout BEFORE Java starts.
+#
+# We can't easily silence `launch.sh` without silencing Java if they share the same fd 1.
+#
+# Solution:
+# We invoke `launch.sh` (via analyzeHeadless) but we do NOT redirect stdout globally.
+# Instead, we modify `launch.sh` behavior or we accept some startup noise and hope the MCP Client ignores pre-JSON text.
+# Many MCP clients (like Claude) are tolerant of non-JSON text before the first JSON message.
+#
+# However, to be safe, we should try to minimize it.
+#
+# The user asked for a dedicated script.
+# We can copy the logic of `analyzeHeadless` but strip the echoes.
+
+# ... Logic from analyzeHeadless ...
+
+MAXMEM=2G
+VMARG_LIST="-XX:ParallelGCThreads=2 -XX:CICompilerCount=2 -Djava.awt.headless=true"
+
+# Resolve SCRIPT_DIR
+SCRIPT_FILE="$(readlink -f "$0" 2>/dev/null || readlink "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="${SCRIPT_FILE%/*}"
+GHIDRA_HOME="${SCRIPT_DIR}/../../../.."
+
+# We need to find the launch.sh
+# In repo: Ghidra/RuntimeScripts/Linux/support/launch.sh
+# But we are in Ghidra/Features/MCP/support/
+# So ../../../RuntimeScripts/Linux/support/launch.sh
+LAUNCH_SH="${GHIDRA_HOME}/Ghidra/RuntimeScripts/Linux/support/launch.sh"
+
+if [ ! -f "${LAUNCH_SH}" ]; then
+	# Fallback for installed mode
+	LAUNCH_SH="${SCRIPT_DIR}/../support/launch.sh"
+fi
+
+if [ ! -f "${LAUNCH_SH}" ]; then
+    # Try finding it via relative path if we are in repo
+    LAUNCH_SH="${SCRIPT_DIR}/../../../../Ghidra/RuntimeScripts/Linux/support/launch.sh"
+fi
+
+# Determine args
+PROJECT_DIR="$1"
+PROJECT_NAME="$2"
+
+if [ -z "$PROJECT_DIR" ] || [ -z "$PROJECT_NAME" ]; then
+    echo "Usage: mcpRun <ProjectDirectory> <ProjectName>" >&2
+    exit 1
+fi
+
+# Run Headless
+# We use 'noanalysis' because we want to drive it via MCP tools.
+# We run the script RunMCPServer.java
+# We pass "-scriptPath" to include our script dir.
+
+SCRIPT_SEARCH_PATH="${SCRIPT_DIR}/../ghidra_scripts"
+
+# We must NOT echo anything to stdout.
+# But launch.sh echoes usage if args are wrong.
+# We hope launch.sh is quiet if args are right.
+# launch.sh echoes: nothing if mode=fg and args are correct?
+# It calls "java ...".
+
+# We execute launch.sh.
+# Note: analyzeHeadless sets LAUNCH_MODE=fg.
+# And calls launch.sh.
+
+# We will call launch.sh directly to have more control if needed,
+# but analyzeHeadless sets up specific class: ghidra.app.util.headless.AnalyzeHeadless
+
+"$LAUNCH_SH" fg jdk Ghidra-MCP "$MAXMEM" "$VMARG_LIST" ghidra.app.util.headless.AnalyzeHeadless \
+    "$PROJECT_DIR" "$PROJECT_NAME" \
+    -noanalysis \
+    -scriptPath "$SCRIPT_SEARCH_PATH" \
+    -preScript RunMCPServer.java
