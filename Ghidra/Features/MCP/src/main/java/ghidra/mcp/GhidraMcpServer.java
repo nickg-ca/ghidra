@@ -18,6 +18,14 @@ import ghidra.base.project.GhidraProject;
 import ghidra.mcp.tools.*;
 import ghidra.mcp.prompts.*;
 
+// Explicit imports to ensure no compilation issues if wildcard is flaky
+import ghidra.mcp.tools.SetLabelTool;
+import ghidra.mcp.tools.SetCommentTool;
+import ghidra.mcp.tools.WriteBytesTool;
+import ghidra.mcp.tools.GetReferencesTool;
+import ghidra.mcp.tools.SearchMemoryTool;
+import ghidra.mcp.tools.ExecuteBatchTool;
+
 public class GhidraMcpServer {
 
 	private final McpSyncServer mcpServer;
@@ -88,8 +96,14 @@ public class GhidraMcpServer {
 		toolRegistry.register(new CloseModuleTool(context));
 		toolRegistry.register(new DecompileTool(context));
 		toolRegistry.register(new ReadBytesTool(context));
+		toolRegistry.register(new WriteBytesTool(context));
 		toolRegistry.register(new GetListingTool(context));
 		toolRegistry.register(new GetLogTool(context));
+		toolRegistry.register(new SetLabelTool(context));
+		toolRegistry.register(new SetCommentTool(context));
+		toolRegistry.register(new GetReferencesTool(context));
+		toolRegistry.register(new SearchMemoryTool(context));
+		toolRegistry.register(new ExecuteBatchTool(toolRegistry));
 	}
 
 	private void registerPrompts() {

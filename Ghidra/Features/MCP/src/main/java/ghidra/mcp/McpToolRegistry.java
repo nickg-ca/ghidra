@@ -14,4 +14,8 @@ public class McpToolRegistry {
 	public Collection<McpTool> getTools() {
 		return tools.values();
 	}
+
+	public McpTool getTool(String name) {
+		return tools.get(name);
+	}
 }
