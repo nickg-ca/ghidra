@@ -49,8 +49,13 @@ GHIDRA_HOME="${SCRIPT_DIR}/../../../.."
 LAUNCH_SH="${GHIDRA_HOME}/Ghidra/RuntimeScripts/Linux/support/launch.sh"
 
 if [ ! -f "${LAUNCH_SH}" ]; then
-	# Fallback for installed mode
-	LAUNCH_SH="${SCRIPT_DIR}/../support/launch.sh"
+    # Standard installation location (Built Ghidra)
+    LAUNCH_SH="${GHIDRA_HOME}/support/launch.sh"
+fi
+
+if [ ! -f "${LAUNCH_SH}" ]; then
+        # Fallback for installed mode
+        LAUNCH_SH="${SCRIPT_DIR}/../support/launch.sh"
 fi
 
 if [ ! -f "${LAUNCH_SH}" ]; then
