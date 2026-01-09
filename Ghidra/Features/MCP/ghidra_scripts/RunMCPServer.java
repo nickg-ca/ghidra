@@ -19,30 +19,44 @@
 //@menupath
 //@toolbar
 
-import java.io.InputStream;
-import java.io.PrintStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.util.concurrent.CountDownLatch;
+import java.net.InetSocketAddress;
+import java.security.SecureRandom;
+import java.util.EnumSet;
+
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.FilterConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.servlet.FilterHolder;
 
 import ghidra.app.script.GhidraScript;
 import ghidra.base.project.GhidraProject;
 import ghidra.mcp.GhidraMcpServer;
 
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
-import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
-import reactor.core.publisher.Mono;
+import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 
 public class RunMCPServer extends GhidraScript {
 
 	@Override
 	public void run() throws Exception {
-		// 1. Capture original Stdio
-		InputStream originalIn = System.in;
-		PrintStream originalOut = System.out;
+		// Generate Token
+		String token = generateToken();
+		int port = 31337;
 
-		// 2. Redirect System.out to System.err to keep the channel clean
-		System.setOut(System.err);
+		printerr("Starting MCP Server on localhost:" + port + "...");
+		printerr("Authentication Token: " + token);
+		printerr("Ensure you pass 'Authorization: Bearer " + token + "' header in your requests.");
 
 		GhidraProject projectWrapper = new GhidraProject() {
 			@Override
@@ -59,39 +73,71 @@ public class RunMCPServer extends GhidraScript {
 			public ghidra.framework.model.ProjectLocator getProjectLocator() { return null; }
 		};
 
-		printerr("Starting MCP Server...");
-
-		CountDownLatch latch = new CountDownLatch(1);
-
+		// Setup Transport
 		JacksonMcpJsonMapper mapper = new JacksonMcpJsonMapper();
-		StdioServerTransportProvider transport = new StdioServerTransportProvider(mapper, originalIn, originalOut) {
+		HttpServletStreamableServerTransportProvider transport = HttpServletStreamableServerTransportProvider.builder()
+				.jsonMapper(mapper)
+				// .mcpEndpoint("/mcp") // Removed to use default root-relative endpoints (/sse, /messages)
+				.build();
+
+		// Initialize Server Logic
+		GhidraMcpServer serverWrapper = new GhidraMcpServer(projectWrapper, transport);
+
+		// Setup Jetty with explicit localhost binding
+		Server server = new Server(new InetSocketAddress("127.0.0.1", port));
+		ServletContextHandler handler = new ServletContextHandler(ServletContextHandler.SESSIONS);
+		handler.setContextPath("/");
+		server.setHandler(handler);
+
+		// Auth Filter
+		Filter authFilter = new Filter() {
 			@Override
-			public Mono<Void> closeGracefully() {
-				return super.closeGracefully().doOnTerminate(() -> {
-					printerr("MCP Server session ended.");
-					latch.countDown();
-				});
+			public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+					throws IOException, ServletException {
+				HttpServletRequest req = (HttpServletRequest) request;
+				HttpServletResponse res = (HttpServletResponse) response;
+
+				String authHeader = req.getHeader("Authorization");
+				if (authHeader == null || !authHeader.equals("Bearer " + token)) {
+					res.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid Token");
+					return;
+				}
+				chain.doFilter(request, response);
 			}
+			@Override
+			public void init(FilterConfig filterConfig) {}
+			@Override
+			public void destroy() {}
 		};
 
-		GhidraMcpServer serverWrapper = new GhidraMcpServer(projectWrapper, transport);
-		// The server is built, which sets up the session factory on the transport.
-		// StdioServerTransportProvider likely starts a thread reading from InputStream or relies on reactor subscription.
+		handler.addFilter(new FilterHolder(authFilter), "/*", EnumSet.of(DispatcherType.REQUEST));
 
-		// NOTE: StdioServerTransportProvider logic:
-		// It might need something to trigger the subscription?
-		// But McpServer.sync(transport).build() just builds the server object.
-		// It calls transport.setSessionFactory(...)
+		// Register Transport Servlet
+		ServletHolder transportHolder = new ServletHolder(transport);
+		// Map to all paths; the transport handles sub-paths internally
+		handler.addServlet(transportHolder, "/*");
 
-		// If StdioServerTransportProvider does not start automatically, we might be stuck.
-		// However, based on typical Reactor usage, someone must subscribe.
-		// The provider implementation usually handles the subscription management or starts daemon threads.
-		// Let's assume it works like typical MCP SDK transports.
+		try {
+			server.start();
+			printerr("MCP Server running. Press Cancel in Ghidra to stop.");
+			server.join();
+		} catch (InterruptedException e) {
+			printerr("Stopping server...");
+		} finally {
+			server.stop();
+			// transport.closeGracefully().block();
+		}
+	}
 
-		// Wait until session closes
-		latch.await();
-
-		printerr("MCP Server Stopped.");
+	private String generateToken() {
+		SecureRandom random = new SecureRandom();
+		byte[] bytes = new byte[16];
+		random.nextBytes(bytes);
+		StringBuilder sb = new StringBuilder();
+		for (byte b : bytes) {
+			sb.append(String.format("%02x", b));
+		}
+		return sb.toString();
 	}
 
 }

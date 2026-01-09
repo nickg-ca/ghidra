@@ -11,7 +11,7 @@ import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncPromptSpecification;
-import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import io.modelcontextprotocol.spec.McpStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 
 import ghidra.base.project.GhidraProject;
@@ -33,7 +33,7 @@ public class GhidraMcpServer {
 	private final McpToolRegistry toolRegistry;
 	private final McpPromptRegistry promptRegistry;
 
-	public GhidraMcpServer(GhidraProject project, StdioServerTransportProvider transport) {
+	public GhidraMcpServer(GhidraProject project, McpStreamableServerTransportProvider transport) {
 		this.context = new McpContext(project);
 		this.toolRegistry = new McpToolRegistry();
 		this.promptRegistry = new McpPromptRegistry();
