@@ -1,1 +1,23 @@
 MODULE FILE LICENSE: lib/mcp-0.17.0.jar MIT
+MODULE FILE LICENSE: lib/mcp-core-0.17.0.jar MIT
+MODULE FILE LICENSE: lib/mcp-json-0.17.0.jar MIT
+MODULE FILE LICENSE: lib/mcp-json-jackson2-0.17.0.jar MIT
+MODULE FILE LICENSE: lib/reactor-core-3.7.0.jar Apache License 2.0
+MODULE FILE LICENSE: lib/reactive-streams-1.0.4.jar Public_Domain
+MODULE FILE LICENSE: lib/jackson-databind-2.19.2.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jackson-core-2.19.2.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jackson-annotations-2.19.2.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jackson-dataformat-yaml-2.19.2.jar Apache License 2.0
+MODULE FILE LICENSE: lib/snakeyaml-2.4.jar Apache License 2.0
+MODULE FILE LICENSE: lib/json-schema-validator-2.0.0.jar Apache License 2.0
+MODULE FILE LICENSE: lib/itu-1.14.0.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jakarta.servlet-api-5.0.0.jar GPL_2_With_Classpath_Exception
+MODULE FILE LICENSE: lib/jetty-server-11.0.20.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jetty-http-11.0.20.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jetty-io-11.0.20.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jetty-util-11.0.20.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jetty-security-11.0.20.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jetty-servlet-11.0.20.jar Apache License 2.0
+MODULE FILE LICENSE: lib/jetty-jakarta-servlet-api-5.0.2.jar GPL_2_With_Classpath_Exception
+MODULE FILE LICENSE: lib/slf4j-simple-2.0.7.jar MIT
+MODULE FILE LICENSE: lib/slf4j-api-2.0.17.jar MIT
