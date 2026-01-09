@@ -30,6 +30,12 @@ dependencies {
 	// MCP SDK
 	api 'io.modelcontextprotocol.sdk:mcp:0.17.0'
 
+	// Jetty and Servlet API for HTTP Transport
+	implementation 'jakarta.servlet:jakarta.servlet-api:5.0.0'
+	implementation 'org.eclipse.jetty:jetty-server:11.0.20'
+	implementation 'org.eclipse.jetty:jetty-servlet:11.0.20'
+	implementation 'org.slf4j:slf4j-simple:2.0.7'
+
 	testImplementation project(path: ':Base', configuration: 'testArtifacts')
 	testImplementation project(path: ':Decompiler', configuration: 'testArtifacts')
 	testImplementation project(path: ':SoftwareModeling', configuration: 'testArtifacts')
