@@ -5,7 +5,6 @@ import java.io.PrintStream;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-import ghidra.base.project.GhidraProject;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.ProjectData;
 import ghidra.program.model.listing.Program;
@@ -16,31 +15,38 @@ import ghidra.program.model.listing.Program;
  */
 public class McpContext {
 
-	private final GhidraProject project;
+	private final ProjectData projectData;
 	private Program currentProgram;
+	private Object currentProgramConsumer;
 
-	public McpContext(GhidraProject project) {
-		this.project = project;
-	}
-
-	public GhidraProject getProject() {
-		return project;
+	public McpContext(ProjectData projectData) {
+		this.projectData = projectData;
 	}
 
 	public Program getCurrentProgram() {
 		return currentProgram;
 	}
 
-	public void setCurrentProgram(Program program) {
+	public void setCurrentProgram(Program program, Object consumer) {
 		if (this.currentProgram != null && this.currentProgram != program) {
-			// Ensure previous program is closed if we are switching,
-			// though usually tools should handle lifecycle explicitly.
-			// But here we just track the reference.
+			if (this.currentProgramConsumer != null) {
+				this.currentProgram.release(this.currentProgramConsumer);
+			}
 		}
 		this.currentProgram = program;
+		this.currentProgramConsumer = consumer;
+	}
+
+	/**
+	 * Sets the current program without tracking a consumer (use with caution).
+	 * If there was a tracked consumer for the previous program, it will be released.
+	 * @param program the program to set
+	 */
+	public void setCurrentProgram(Program program) {
+		setCurrentProgram(program, null);
 	}
 
 	public ProjectData getProjectData() {
-		return project.getProjectData();
+		return projectData;
 	}
 }

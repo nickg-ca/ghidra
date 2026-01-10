@@ -19,6 +19,28 @@
 //@menupath
 //@toolbar
 
+// @classPath ../lib/mcp-0.17.0.jar
+// @classPath ../lib/mcp-core-0.17.0.jar
+// @classPath ../lib/mcp-json-0.17.0.jar
+// @classPath ../lib/mcp-json-jackson2-0.17.0.jar
+// @classPath ../lib/reactor-core-3.7.0.jar
+// @classPath ../lib/reactive-streams-1.0.4.jar
+// @classPath ../lib/jackson-databind-2.19.2.jar
+// @classPath ../lib/jackson-core-2.19.2.jar
+// @classPath ../lib/jackson-annotations-2.19.2.jar
+// @classPath ../lib/jackson-dataformat-yaml-2.19.2.jar
+// @classPath ../lib/snakeyaml-2.4.jar
+// @classPath ../lib/jakarta.servlet-api-5.0.0.jar
+// @classPath ../lib/jetty-server-11.0.20.jar
+// @classPath ../lib/jetty-http-11.0.20.jar
+// @classPath ../lib/jetty-io-11.0.20.jar
+// @classPath ../lib/jetty-util-11.0.20.jar
+// @classPath ../lib/jetty-security-11.0.20.jar
+// @classPath ../lib/jetty-servlet-11.0.20.jar
+// @classPath ../lib/jetty-jakarta-servlet-api-5.0.2.jar
+// @classPath ../lib/slf4j-simple-2.0.7.jar
+// @classPath ../lib/slf4j-api-2.0.17.jar
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.security.SecureRandom;
@@ -40,7 +62,7 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.servlet.FilterHolder;
 
 import ghidra.app.script.GhidraScript;
-import ghidra.base.project.GhidraProject;
+import ghidra.framework.model.ProjectData;
 import ghidra.mcp.GhidraMcpServer;
 
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
@@ -58,20 +80,15 @@ public class RunMCPServer extends GhidraScript {
 		printerr("Authentication Token: " + token);
 		printerr("Ensure you pass 'Authorization: Bearer " + token + "' header in your requests.");
 
-		GhidraProject projectWrapper = new GhidraProject() {
-			@Override
-			public ghidra.framework.model.ProjectData getProjectData() {
-				return state.getProjectData();
-			}
-
-			@Override
-			public String getName() {
-				return "CurrentProject";
-			}
-			public void close() {}
-			public boolean isClosed() { return false; }
-			public ghidra.framework.model.ProjectLocator getProjectLocator() { return null; }
-		};
+		ProjectData projectData = null;
+		if (state.getProject() != null) {
+			projectData = state.getProject().getProjectData();
+		} else {
+			printerr("Warning: No active project found. Some MCP features may not work.");
+			// For headless or no-project cases, we might need a dummy or handle it in McpContext.
+			// Currently McpContext expects ProjectData.
+			// If null, tools using it will fail.
+		}
 
 		// Setup Transport
 		JacksonMcpJsonMapper mapper = new JacksonMcpJsonMapper();
@@ -81,7 +98,7 @@ public class RunMCPServer extends GhidraScript {
 				.build();
 
 		// Initialize Server Logic
-		GhidraMcpServer serverWrapper = new GhidraMcpServer(projectWrapper, transport);
+		GhidraMcpServer serverWrapper = new GhidraMcpServer(projectData, transport);
 
 		// Setup Jetty with explicit localhost binding
 		Server server = new Server(new InetSocketAddress("127.0.0.1", port));
