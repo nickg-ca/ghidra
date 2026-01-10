@@ -8,7 +8,6 @@ import ghidra.framework.model.DomainFile;
 import ghidra.program.model.listing.Program;
 import ghidra.mcp.McpContext;
 import ghidra.mcp.McpTool;
-import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -59,7 +58,7 @@ public class OpenModuleTool implements McpTool {
 		ghidra.framework.model.DomainObject obj = df.getDomainObject(consumer, true, false, ghidra.util.task.TaskMonitor.DUMMY);
 
 		if (obj instanceof Program) {
-			context.setCurrentProgram((Program) obj);
+			context.setCurrentProgram((Program) obj, consumer);
 			return new CallToolResult(Collections.singletonList(new TextContent("Successfully opened: " + path)), false);
 		} else {
 			obj.release(consumer);

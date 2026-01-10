@@ -35,7 +35,7 @@ public class CloseModuleTool implements McpTool {
 		if (context.getCurrentProgram() != null) {
 			String name = context.getCurrentProgram().getName();
 			// Simplified cleanup (see notes in previous impl)
-			context.setCurrentProgram(null);
+			context.setCurrentProgram(null, null);
 			return new CallToolResult(Collections.singletonList(new TextContent("Closed module: " + name)), false);
 		}
 		return new CallToolResult(Collections.singletonList(new TextContent("No module open.")), false);
