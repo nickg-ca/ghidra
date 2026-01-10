@@ -159,7 +159,9 @@ configurations {
 }
 
 dependencies {
-	jsondoc project('Doclets')
+	if (findProject(':Doclets')) {
+		jsondoc project(':Doclets')
+	}
 }
 
  
@@ -248,7 +250,7 @@ task createGhidraStubsWheel {
 	it.outputs.file("${distDir}/ghidra_stubs-${project.version}-py3-none-any.whl")
 	
 	def p = project
-	def debuggerRmiTraceProject = project(":Debugger-rmi-trace")
+	def debuggerRmiTraceProject = findProject(":Debugger-rmi-trace")
 
 	doFirst {
 		copy {
@@ -547,13 +549,16 @@ task assembleMarkdownToHtml (type: Copy) {
 	group = 'private'
 	description = "Copies a markdown file and a generaterated html file into the distribution folder"
 	
-	dependsOn ':MarkdownSupport:classes'
+	if (findProject(':MarkdownSupport')) {
+		dependsOn ':MarkdownSupport:classes'
+	}
 	outputs.upToDateWhen {false}
 	destinationDir = file(DISTRIBUTION_DIR.getPath() + "/" +  ZIP_DIR_PREFIX)
 	
-	def markdownSuppportProject = project(':MarkdownSupport')
+	def markdownSuppportProject = findProject(':MarkdownSupport')
 	
 	eachFile { f ->
+		if (markdownSuppportProject == null) { return }
 		def htmlName = f.sourceName[0..-3] + "html"
 		def htmlPath = f.relativePath.replaceLastName(htmlName).pathString 
 		
